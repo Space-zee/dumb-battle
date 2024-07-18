@@ -12,7 +12,7 @@ export class WalletEntity extends BaseEntity {
   @Column({ name: 'address', length: 42, nullable: false })
   public address: string;
 
-  @Column({ name: 'privateKey', length: 66, nullable: false })
+  @Column({ name: 'privateKey', nullable: false })
   public privateKey: string;
 
   @ManyToOne(() => UserEntity, (user) => user.wallets)
