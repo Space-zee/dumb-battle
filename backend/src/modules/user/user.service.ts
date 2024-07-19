@@ -5,17 +5,42 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IResponse } from '../../shared/interfaces/response.interface';
 import { WalletEntity } from '../../../db/entities/wallet.entity';
 import { ethers } from 'ethers';
+import * as crypto from 'crypto';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name);
+  private readonly encryptionKey : string;
+  private readonly encryptionAlgorithm = 'aes-256-cbc';
 
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
     @InjectRepository(WalletEntity)
     private readonly walletRepository: Repository<WalletEntity>,
-  ) {}
+    private configServise: ConfigService,
+  ) {
+    this.encryptionKey = configServise.get("ENCRYPTION_KEY");
+  }
+
+  private encrypt(text: string): string {
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipheriv(this.encryptionAlgorithm, Buffer.from(this.encryptionKey), iv);
+    let encrypted = cipher.update(text);
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    return `${iv.toString('hex')}:${encrypted.toString('hex')}`;
+  }
+
+  private decrypt(text: string): string {
+    const textParts = text.split(':');
+    const iv = Buffer.from(textParts.shift(), 'hex');
+    const encryptedText = Buffer.from(textParts.join(':'), 'hex');
+    const decipher = crypto.createDecipheriv(this.encryptionAlgorithm, Buffer.from(this.encryptionKey), iv);
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
+  }
 
   public async createUser(
     telegramUserId: number,
@@ -76,16 +101,18 @@ export class UserService {
         success: true,
         data: {
           address: userEntity.wallets[0].address,
-          privateKey: userEntity.wallets[0].privateKey,
+          privateKey: this.decrypt(userEntity.wallets[0].privateKey),
         },
       };
     }
     const wallet = ethers.Wallet.createRandom();
 
+    const encryptedPrivateKey = this.encrypt(wallet.privateKey);
+
     const walletEntity = this.walletRepository.create({
       address: wallet.address,
       userId: userEntity.id,
-      privateKey: wallet.privateKey,
+      privateKey: encryptedPrivateKey,
     });
     await walletEntity.save();
 
