@@ -6,11 +6,12 @@ import { IResponse } from '../../shared/interfaces/response.interface';
 import { WalletEntity } from '../../../db/entities/wallet.entity';
 import { ethers } from 'ethers';
 import * as crypto from 'crypto';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name);
-  private readonly encryptionKey = process.env.ENCRYPTION_KEY
+  private readonly encryptionKey : string;
   private readonly encryptionAlgorithm = 'aes-256-cbc';
 
   constructor(
@@ -18,7 +19,10 @@ export class UserService {
     private readonly userRepository: Repository<UserEntity>,
     @InjectRepository(WalletEntity)
     private readonly walletRepository: Repository<WalletEntity>,
-  ) {}
+    private configServise: ConfigService,
+  ) {
+    this.encryptionKey = configServise.get("ENCRYPTION_KEY");
+  }
 
   private encrypt(text: string): string {
     const iv = crypto.randomBytes(16);
