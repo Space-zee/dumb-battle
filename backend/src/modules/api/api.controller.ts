@@ -1,13 +1,15 @@
-import { Controller, Get, HttpException, HttpStatus, Logger, Query, Req } from '@nestjs/common';
+import { Controller, Get, HttpException, HttpStatus, Logger, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiService } from './api.service';
 import { RoomEntity } from '../../../db/entities/room.entity';
 import { IGetActiveRoomsRes } from './interfaces';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller()
 export class ApiController {
   private readonly logger = new Logger(ApiService.name);
   constructor(private readonly apiService: ApiService) {}
 
+  @UseGuards(JwtAuthGuard) 
   @Get('getActiveRooms')
   public async getActiveRooms(
     @Query() query: any,
@@ -32,6 +34,7 @@ export class ApiController {
     }
   }
 
+  @UseGuards(JwtAuthGuard) 
   @Get('getUserWallet')
   public async getUserWallet(
     @Query() query: any,

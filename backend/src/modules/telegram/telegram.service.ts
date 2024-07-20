@@ -3,6 +3,7 @@ import { Action, Start, Update } from 'nestjs-telegraf';
 import { Context } from '../../shared/interfaces/context.interface';
 import { ParseMode } from 'telegraf/typings/core/types/typegram';
 import { UserService } from '../user/user.service';
+import { AuthService } from '../auth/auth.service';
 import { startMsg, webAppMsg } from '../../shared/utils/msg';
 import { startUrlGif } from '../../shared/constants/startUrlGif.const';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -18,6 +19,7 @@ export class TelegramService {
 
   constructor(
     private readonly userService: UserService,
+    private readonly authService: AuthService,
     @InjectRepository(RoomEntity)
     private readonly roomRepository: Repository<RoomEntity>,
   ) {}
@@ -38,6 +40,10 @@ export class TelegramService {
 
       return;
     }
+
+    const jwtToken = await this.authService.generateJwt(ctx.from.id);
+    const appUrlWithToken = `${uiUrl}?token=${jwtToken}`;
+    this.logger.log(jwtToken)
     if (userCreate.data.wallet) {
       const options = {
         reply_markup: {
@@ -46,7 +52,7 @@ export class TelegramService {
               {
                 text: `Open App`,
                 web_app: {
-                  url: uiUrl,
+                  url: appUrlWithToken,
                 },
               },
             ],
@@ -96,6 +102,9 @@ export class TelegramService {
       return;
     }
 
+    const jwtToken = await this.authService.generateJwt(ctx.from.id);
+    const appUrlWithToken = `${uiUrl}?token=${jwtToken}`;
+    
     const options = {
       reply_markup: {
         inline_keyboard: [
@@ -103,7 +112,7 @@ export class TelegramService {
             {
               text: `Open App`,
               web_app: {
-                url: uiUrl,
+                url: appUrlWithToken,
               },
             },
           ],

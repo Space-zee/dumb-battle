@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { GatewayModule } from './modules/gateway/gateway.module';
 import { ApiModule } from './modules/api/api.module';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { ApiModule } from './modules/api/api.module';
     TelegramModule,
     GatewayModule,
     ApiModule,
+    AuthModule
   ],
 })
 export class AppModule {}
