@@ -1,11 +1,11 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpStatus, Logger } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpStatus, Logger , UnauthorizedException} from '@nestjs/common';
 import { Response } from 'express';
 
 @Catch()
 export class AllExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionFilter.name);
 
-  public constructor() {}
+  public constructor() { }
 
   public async catch(exception: any, host: ArgumentsHost): Promise<void | string> {
     const contextType = host.getType();
@@ -13,9 +13,13 @@ export class AllExceptionFilter implements ExceptionFilter {
       const ctx = host.switchToHttp();
       const response = ctx.getResponse<Response>();
       const status = exception?.status ? exception.status : HttpStatus.INTERNAL_SERVER_ERROR;
-      const error = exception?.response?.error
+      let error = exception?.response?.error
         ? exception?.response?.error
         : 'Interval Server Error';
+
+      if (exception instanceof UnauthorizedException) {
+        error = 'Unauthorized';
+      }
 
       response.status(status).json({
         statusCode: status,

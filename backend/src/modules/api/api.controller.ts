@@ -1,9 +1,11 @@
-import { Controller, Get, HttpException, HttpStatus, Logger, Query, Req } from '@nestjs/common';
+import { Controller, Get, HttpException, HttpStatus, Logger, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiService } from './api.service';
 import { RoomEntity } from '../../../db/entities/room.entity';
 import { IGetActiveRoomsRes } from './interfaces';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller()
+@UseGuards(JwtAuthGuard) 
 export class ApiController {
   private readonly logger = new Logger(ApiService.name);
   constructor(private readonly apiService: ApiService) {}
