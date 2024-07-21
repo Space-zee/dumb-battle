@@ -5,11 +5,11 @@ import { IGetActiveRoomsRes } from './interfaces';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller()
+@UseGuards(JwtAuthGuard) 
 export class ApiController {
   private readonly logger = new Logger(ApiService.name);
   constructor(private readonly apiService: ApiService) {}
 
-  @UseGuards(JwtAuthGuard) 
   @Get('getActiveRooms')
   public async getActiveRooms(
     @Query() query: any,
@@ -34,7 +34,6 @@ export class ApiController {
     }
   }
 
-  @UseGuards(JwtAuthGuard) 
   @Get('getUserWallet')
   public async getUserWallet(
     @Query() query: any,

@@ -43,7 +43,7 @@ export class TelegramService {
 
     const jwtToken = await this.authService.generateJwt(ctx.from.id);
     const appUrlWithToken = `${uiUrl}?token=${jwtToken}`;
-    this.logger.log(jwtToken)
+
     if (userCreate.data.wallet) {
       const options = {
         reply_markup: {
