@@ -8,10 +8,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     return super.canActivate(context);
   }
 
-  handleRequest(err, user, info) {
+  public handleRequest(err, user, info) {
+    console.log(user, info);
     if (err || !user) {
       throw new UnauthorizedException();
     }
+
     return user;
   }
 }

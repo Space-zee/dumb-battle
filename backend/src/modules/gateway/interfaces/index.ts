@@ -1,5 +1,4 @@
 export interface ICreateLobbyReq {
-  telegramUserId: number;
   bet: string;
 }
 
@@ -16,9 +15,9 @@ export interface IJoinRoomReq {
 export interface IJoinRoomRes {
   bet: string;
   roomId: string;
-  username: string;
+  creatorName: string;
   opponentName: string;
-  roomCreator: number;
+  roomCreatorId: number;
 }
 
 export interface IRabbitsSetReq {

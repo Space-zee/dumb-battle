@@ -42,7 +42,7 @@ export class TelegramService {
     }
 
     const jwtToken = await this.authService.generateJwt(ctx.from.id);
-    const appUrlWithToken = `${uiUrl}?token=${jwtToken}`;
+    const appUrlWithToken = `${uiUrl}/games?token=${jwtToken}`;
 
     if (userCreate.data.wallet) {
       const options = {
@@ -103,8 +103,8 @@ export class TelegramService {
     }
 
     const jwtToken = await this.authService.generateJwt(ctx.from.id);
-    const appUrlWithToken = `${uiUrl}?token=${jwtToken}`;
-    
+    const appUrlWithToken = `${uiUrl}/games?token=${jwtToken}`;
+
     const options = {
       reply_markup: {
         inline_keyboard: [
