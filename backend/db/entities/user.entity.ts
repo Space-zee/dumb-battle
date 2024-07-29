@@ -16,6 +16,9 @@ export class UserEntity extends BaseEntity {
   @Column({ name: 'username', length: 255, nullable: false })
   public username: string;
 
+  @Column({ name: 'photo', type: 'text', nullable: true })
+  public photo: string;
+
   @Column({ name: 'nonce', nullable: false })
   public nonce: number;
 

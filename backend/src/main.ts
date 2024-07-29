@@ -5,7 +5,7 @@ import { AllExceptionFilter } from './filters';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalFilters(new AllExceptionFilter());
-  app.enableCors();
-  await app.listen(3000);
+  app.enableCors({ origin: '*' });
+  await app.listen(3001);
 }
 bootstrap();

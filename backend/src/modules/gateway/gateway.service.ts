@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserEntity } from '../../../db/entities/user.entity';
-import { UserService } from '../user/user.service';
 import { Repository } from 'typeorm';
 import { BigNumber, ethers } from 'ethers';
 import {
@@ -28,6 +27,8 @@ import fs from 'fs';
 import * as path from 'path';
 import { formatEther, parseEther } from 'ethers/lib/utils';
 import abi from '../../abi/bunBattle.json';
+import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
+import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host';
 
 const createWC = require('../../../assets/circom/board/board_js/witness_calculator.js');
 const createWasm = path.resolve(__dirname, '../../../assets/circom/board/board_js/board.wasm');
@@ -55,60 +56,64 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     private readonly roomRepository: Repository<RoomEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
-    private userService: UserService,
+    private readonly wsJwtAuthGuard: WsJwtAuthGuard,
   ) {
     this.provider = new ethers.providers.JsonRpcProvider(this.url);
   }
 
-  @SubscribeMessage('createLobby')
-  public async handleCreateLobby(client: Socket, body: ICreateLobbyReq) {
-    const user = await this.userRepository.findOne({
-      where: { telegramUserId: body.telegramUserId },
-    });
-    const roomEntity = this.roomRepository.create({
-      roomId: uuidv4(),
-      status: RoomStatus.Active,
-      userId: user.id,
-      bet: body.bet,
-    });
-    await this.roomRepository.save(roomEntity);
-
-    client.join(roomEntity.roomId);
-
-    //this.server.to(roomEntity.roomId).emit('roomCreated', { roomId: roomEntity.roomId });
-    //1. Bet
-    //2.Username
-    const res: ICreateLobbyRes = { bet: body.bet, roomId: roomEntity.roomId };
-    this.server.emit(`roomCreated:${body.telegramUserId}`, res);
-  }
+  // @SubscribeMessage('createLobby')
+  // public async handleCreateLobby(client: Socket, body: ICreateLobbyReq) {
+  //   const user = await this.userRepository.findOne({
+  //     where: { telegramUserId: 1 },
+  //   });
+  //   const roomEntity = this.roomRepository.create({
+  //     roomId: uuidv4(),
+  //     status: RoomStatus.Active,
+  //     userId: user.id,
+  //     bet: body.bet,
+  //   });
+  //   await this.roomRepository.save(roomEntity);
+  //
+  //   client.join(roomEntity.roomId);
+  //
+  //   //this.server.to(roomEntity.roomId).emit('roomCreated', { roomId: roomEntity.roomId });
+  //   //1. Bet
+  //   //2.Username
+  //   const res: ICreateLobbyRes = { bet: body.bet, roomId: roomEntity.roomId };
+  //   this.server.emit(`roomCreated:${1}`, res);
+  // }
 
   @SubscribeMessage('joinRoom')
   public async handleJoinRoom(client: Socket, body: IJoinRoomReq) {
-    console.log(`${body.telegramUserId} joined room: ${body.roomId}`);
-    const roomEntity = await this.roomRepository.findOne({
-      where: { roomId: body.roomId },
-    });
-    client.join(roomEntity.roomId);
-
-    await this.roomRepository.update(roomEntity.id, { status: RoomStatus.Game });
-
     //1. Bet
     //2.Username both
     //3.RoomId
+    console.log(`${body.telegramUserId} joined room: ${body.roomId}`);
+
+    const roomEntity = await this.roomRepository.findOne({
+      where: { roomId: body.roomId },
+      relations: { user: true },
+    });
+
+    client.join(roomEntity.roomId);
+
     const user = await this.userRepository.findOne({
       where: { telegramUserId: body.telegramUserId },
     });
-    const opponent = await this.userRepository.findOne({
-      where: { id: roomEntity.userId },
-    });
+
     const res: IJoinRoomRes = {
       bet: roomEntity.bet,
       roomId: roomEntity.roomId,
-      username: user.username,
-      opponentName: opponent.username,
-      roomCreator: 1,
+      creatorName: roomEntity.user.username,
+      opponentName: user.username,
+      roomCreatorId: roomEntity.user.telegramUserId,
     };
-    this.server.emit(`readyForBattle:${roomEntity.roomId}`, res);
+
+    if (roomEntity.userId !== user.id) {
+      console.log('res', res);
+      await this.roomRepository.update(roomEntity.id, { status: RoomStatus.Game });
+      this.server.emit(`readyForBattle:${roomEntity.roomId}`, res);
+    }
   }
 
   @SubscribeMessage('clientRabbitsSet')
@@ -138,8 +143,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     };
     const proof = await this.genCreateProof(playerCreate);
 
-    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
-    const signer = new ethers.Wallet(privateKey, this.provider);
+    const signer = new ethers.Wallet(userEntity.wallets[0].privateKey, this.provider);
     const contract = getBattleshipContract(signer);
     const contractInterface = new ethers.utils.Interface(abi);
 
@@ -193,8 +197,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       where: { roomId: body.roomId },
       relations: { user: true },
     });
-    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
-    const signer = new ethers.Wallet(privateKey, this.provider);
+    const signer = new ethers.Wallet(userEntity.wallets[0].privateKey, this.provider);
     const contract = getBattleshipContract(signer);
     const game = await contract.game(roomEntity.contractRoomId);
 
@@ -293,8 +296,19 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     }
   }
 
-  public handleConnection(socket: Socket): void {
-    this.logger.log(`Socket connected: ${socket.id}`);
+  public async handleConnection(socket: Socket): Promise<void> {
+    try {
+      const canActivate = await this.wsJwtAuthGuard.canActivate(new ExecutionContextHost([socket]));
+      if (!canActivate) {
+        socket.disconnect();
+        this.logger.log(`Unauthorized connection attempt: ${socket.id}`);
+        return;
+      }
+      this.logger.log(`Socket connected: ${socket.id}`);
+    } catch (e) {
+      this.logger.error(`Connection failed: ${e.message}`);
+      socket.disconnect();
+    }
   }
 
   // it will be handled when a client disconnects from the server

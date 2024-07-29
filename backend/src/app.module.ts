@@ -43,7 +43,7 @@ import { AuthModule } from './modules/auth/auth.module';
     TelegramModule,
     GatewayModule,
     ApiModule,
-    AuthModule
+    AuthModule,
   ],
 })
 export class AppModule {}

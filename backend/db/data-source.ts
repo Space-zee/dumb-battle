@@ -1,9 +1,8 @@
 import * as dotenv from 'dotenv';
 import {DataSource} from 'typeorm'
 import {DataSourceOptions} from "typeorm/data-source/DataSourceOptions";
-dotenv.config({
-  path: `env/${!process.env.NODE_ENV ? '.env.local' : `.env.${process.env.NODE_ENV}`}`,
-});
+dotenv.config({ path: process.env.NODE_ENV ? `.env.${process.env.NODE_ENV}` : '.env.local' });
+
 
 export const dataSourceOptions:DataSourceOptions ={
   type: 'mysql',

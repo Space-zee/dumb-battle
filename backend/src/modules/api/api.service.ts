@@ -10,6 +10,8 @@ import { RoomEntity } from '../../../db/entities/room.entity';
 import { RoomStatus } from './enums';
 import * as path from 'path';
 import { formatEther } from 'ethers/lib/utils';
+import { v4 as uuidv4 } from 'uuid';
+import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
 
 const createWC = require('../../../assets/circom/board/board_js/witness_calculator.js');
 const createWasm = path.resolve(__dirname, '../../assets/circom/board/board_js/board.wasm');
@@ -43,6 +45,7 @@ export class ApiService {
       return {
         bet: el.bet,
         roomId: el.roomId,
+        creatorId: Number(el.user.telegramUserId),
         username: el.user.username ? el.user.username : 'Rand',
       };
     });
@@ -61,20 +64,26 @@ export class ApiService {
     };
   }
 
-  public async createGame() {
-    const provider = new ethers.providers.JsonRpcProvider(
-      'https://rpc.ankr.com/scroll_sepolia_testnet',
-    );
-    const player1Create = {
-      nonce: 12345,
-      ships: [
-        [2, 2],
-        [0, 0],
-      ],
-    };
-    const proof1 = await this.genCreateProof(player1Create);
-
-    return proof1;
+  public async createGame(telegramUserId: number, data: ICreateLobbyReq): Promise<ICreateLobbyRes> {
+    try {
+      const user = await this.userRepository.findOne({
+        where: { telegramUserId },
+      });
+      console.log(user);
+      const roomEntity = this.roomRepository.create({
+        roomId: uuidv4(),
+        status: RoomStatus.Active,
+        userId: user.id,
+        bet: data.bet,
+      });
+      await this.roomRepository.save(roomEntity);
+      return {
+        bet: data.bet,
+        roomId: roomEntity.roomId,
+      };
+    } catch (e) {
+      this.logger.error(`createGame error | ${e}`);
+    }
   }
 
   private async genCreateProof(input: any) {

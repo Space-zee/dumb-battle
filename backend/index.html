@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Connection with JWT Token</title>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>WebSocket Connection with JWT Token</h1>
+    <script>
+        const jwtToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWxlZ3JhbVVzZXJJZCI6NjU5MTcxMjg2LCJpYXQiOjE3MjIyNzgyNjgsImV4cCI6MTcyMjI4MTg2OH0.owIOAW6zE0hUtKz35M0SDxoDeQmcHB8woPsiqg4s5Sw';  // Замените на ваш JWT токен
+        const socket = io('http://localhost:3001', {
+            auth: {
+                token: jwtToken
+            }
+        });
+
+        socket.on('connect', () => {
+            console.log('Connected to the server');
+        });
+
+        socket.on('authenticated', () => {
+            console.log('Authenticated successfully');
+        });
+
+        socket.on('unauthorized', (msg) => {
+            console.log('Unauthorized:', msg);
+            socket.disconnect();
+        });
+
+        socket.on('error', (error) => {
+            console.error('Error:', error);
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from the server');
+        });
+
+        socket.on('someEvent', (data) => {
+            console.log('Received data:', data);
+        });
+
+        function sendMessage(event, data) {
+            socket.emit(event, data);
+        }
+    </script>
+</body>
+</html>
