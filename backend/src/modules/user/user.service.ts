@@ -38,7 +38,7 @@ export class UserService {
     return `${iv.toString('hex')}:${encrypted.toString('hex')}`;
   }
 
-  private decrypt(text: string): string {
+  public decrypt(text: string): string {
     const textParts = text.split(':');
     const iv = Buffer.from(textParts.shift(), 'hex');
     const encryptedText = Buffer.from(textParts.join(':'), 'hex');
