@@ -41,7 +41,7 @@ export class ApiService {
     });
   }
 
-  public async getWallet(telegramUserId: number): Promise<{ wallet: string; balance: string }> {
+  public async getWallet(telegramUserId: string): Promise<{ wallet: string; balance: string }> {
     const userEntity = await this.userRepository.findOne({
       where: { telegramUserId },
       relations: { wallets: true },
@@ -54,7 +54,7 @@ export class ApiService {
     };
   }
 
-  public async createGame(telegramUserId: number, data: ICreateLobbyReq): Promise<ICreateLobbyRes> {
+  public async createGame(telegramUserId: string, data: ICreateLobbyReq): Promise<ICreateLobbyRes> {
     try {
       const user = await this.userRepository.findOne({
         where: { telegramUserId },

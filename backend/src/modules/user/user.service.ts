@@ -54,7 +54,7 @@ export class UserService {
   }
 
   public async createUser(
-    telegramUserId: number,
+    telegramUserId: string,
     firstName: string,
     username: string,
   ): Promise<IResponse<{ wallet: WalletEntity }>> {
@@ -97,7 +97,7 @@ export class UserService {
   }
 
   public async createWallet(
-    telegramUserId: number,
+    telegramUserId: string,
   ): Promise<IResponse<{ address: string; privateKey: string }>> {
     const userEntity = await this.userRepository.findOne({
       where: { telegramUserId },

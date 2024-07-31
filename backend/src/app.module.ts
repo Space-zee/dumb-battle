@@ -33,7 +33,7 @@ import { AuthModule } from './modules/auth/auth.module';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
         timezone: 'Z',
-        synchronize: true,
+        synchronize: false,
         entities: ['dist/db/entities/*.entity.js'],
         migrations: ['dist/db/migrations/*.js'],
         charset: 'utf8mb4',

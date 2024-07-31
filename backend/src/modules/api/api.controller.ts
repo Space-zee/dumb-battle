@@ -13,7 +13,6 @@ import {
 import { ApiService } from './api.service';
 import { IGetActiveRoomsRes } from './interfaces';
 import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { parseJwt } from '../../shared/utils/parseJwt';
 
 @Controller()
@@ -49,7 +48,6 @@ export class ApiController {
     @Req() request: Request,
   ): Promise<{ wallet: string; balance: string }> {
     const jwtData = parseJwt(request.headers['authorization']);
-    console.log('jwtData', jwtData);
     try {
       this.logger.log('getUserWallet call');
 
@@ -78,9 +76,8 @@ export class ApiController {
       this.logger.log('createGames call');
 
       const jwtData = parseJwt(request.headers['authorization']);
-      console.log('jwtData', jwtData);
 
-      return await this.apiService.createGame(jwtData.telegramUserId, payload);
+      return await this.apiService.createGame(jwtData.telegramUserId.toString(), payload);
     } catch (e) {
       this.logger.error(`api createGames error | ${e}`);
       const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;

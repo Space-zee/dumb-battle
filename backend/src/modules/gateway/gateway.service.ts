@@ -13,30 +13,32 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { RoomEntity } from '../../../db/entities/room.entity';
-import { v4 as uuidv4 } from 'uuid';
 import { RoomStatus } from '../api/enums';
 import {
-  ICreateLobbyReq,
-  ICreateLobbyRes,
   IJoinRoomReq,
   IJoinRoomRes,
   IRabbitsSetReq,
+  IReadyForBattle,
   IUserMoveReq,
 } from './interfaces';
 import { getBattleshipContract } from '../../shared/utils/getBattleshipContract';
 import fs from 'fs';
 import * as path from 'path';
-import { formatEther, parseEther } from 'ethers/lib/utils';
+import { parseEther } from 'ethers/lib/utils';
 import abi from '../../abi/bunBattle.json';
+import { SocketEvents } from './enums';
+import * as snarkJS from 'snarkjs';
+import bigInt from 'big-integer';
 
 const createWC = require('../../../assets/circom/board/board_js/witness_calculator.js');
+const moveWC = require('../../../assets/circom/move/move_js/witness_calculator.js');
+
 const createWasm = path.resolve(__dirname, '../../../assets/circom/board/board_js/board.wasm');
 const createZkey = path.resolve(__dirname, '../../../assets/circom/board/board_0001.zkey');
-const moveWC = require('../../../assets/circom/move/move_js/witness_calculator.js');
 const moveWasm = path.resolve(__dirname, '../../../assets/circom/move/move_js/move.wasm');
 const moveZkey = path.resolve(__dirname, '../../../assets/circom/move/move_0001.zkey');
-const snarkjs = require('snarkjs');
-const bigInt = require('big-integer');
+//const snarkjs = require('snarkjs');
+//const bigInt = require('big-integer');
 const WITNESS_FILE = '/tmp/witness';
 const emptyProof = '0x0000000000000000000000000000000000000000000000000000000000000000';
 
@@ -46,9 +48,8 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
   private readonly logger = new Logger(GatewayService.name);
   private readonly url = `https://scroll-sepolia.blockpi.network/v1/rpc/64e6310d6e6234d8d05d9afcdc60a5ddab5a05a9`;
   private provider: ethers.providers.JsonRpcProvider;
-  private boardHash: any = {};
   @WebSocketServer()
-  server: Server;
+  private server: Server;
 
   constructor(
     @InjectRepository(RoomEntity)
@@ -60,34 +61,9 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     this.provider = new ethers.providers.JsonRpcProvider(this.url);
   }
 
-  // @SubscribeMessage('createLobby')
-  // public async handleCreateLobby(client: Socket, body: ICreateLobbyReq) {
-  //   const user = await this.userRepository.findOne({
-  //     where: { telegramUserId: 1 },
-  //   });
-  //   const roomEntity = this.roomRepository.create({
-  //     roomId: uuidv4(),
-  //     status: RoomStatus.Active,
-  //     userId: user.id,
-  //     bet: body.bet,
-  //   });
-  //   await this.roomRepository.save(roomEntity);
-  //
-  //   client.join(roomEntity.roomId);
-  //
-  //   //this.server.to(roomEntity.roomId).emit('roomCreated', { roomId: roomEntity.roomId });
-  //   //1. Bet
-  //   //2.Username
-  //   const res: ICreateLobbyRes = { bet: body.bet, roomId: roomEntity.roomId };
-  //   this.server.emit(`roomCreated:${1}`, res);
-  // }
-
-  @SubscribeMessage('joinRoom')
-  public async handleJoinRoom(client: Socket, body: IJoinRoomReq) {
-    //1. Bet
-    //2.Username both
-    //3.RoomId
-    console.log(`${body.telegramUserId} joined room: ${body.roomId}`);
+  @SubscribeMessage(SocketEvents.JoinRoomClient)
+  public async handleJoinRoom(client: Socket, body: IJoinRoomReq): Promise<void> {
+    this.logger.log(`${body.telegramUserId} joined room: ${body.roomId}`);
 
     const roomEntity = await this.roomRepository.findOne({
       where: { roomId: body.roomId },
@@ -97,25 +73,37 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     client.join(roomEntity.roomId);
 
     const user = await this.userRepository.findOne({
-      where: { telegramUserId: body.telegramUserId },
+      where: { telegramUserId: body.telegramUserId.toString() },
     });
 
-    const res: IJoinRoomRes = {
-      bet: roomEntity.bet,
-      roomId: roomEntity.roomId,
-      creatorName: roomEntity.user.username,
-      opponentName: user.username,
-      roomCreatorId: roomEntity.user.telegramUserId,
-    };
+    const room = this.server.sockets.adapter.rooms.get(roomEntity.roomId);
+    const numOfPlayers = room ? room.size : 0;
 
-    if (roomEntity.userId !== user.id) {
-      console.log('res', res);
-      await this.roomRepository.update(roomEntity.id, { status: RoomStatus.Game });
-      this.server.emit(`readyForBattle:${roomEntity.roomId}`, res);
+    if (numOfPlayers === 2) {
+      const data: IReadyForBattle = {
+        isGameCreated: !!roomEntity.contractRoomId,
+        bet: roomEntity.bet,
+        roomId: roomEntity.roomId,
+        creatorName: roomEntity.user.username,
+        opponentName: user.username,
+        roomCreatorId: Number(roomEntity.user.telegramUserId),
+      };
+      await this.roomRepository.update(roomEntity.id, { status: RoomStatus.WaitingBets });
+      this.server.emit(`${SocketEvents.ReadyForBattle}:${roomEntity.roomId}`, data);
+    } else {
+      const data: IJoinRoomRes = {
+        isGameCreated: !!roomEntity.contractRoomId,
+        bet: roomEntity.bet,
+        roomId: roomEntity.roomId,
+        creatorName: roomEntity.user.username,
+        opponentName: user.id !== roomEntity.user.id ? roomEntity.user.username : undefined,
+        roomCreatorId: Number(roomEntity.user.telegramUserId),
+      };
+      this.server.emit(`${SocketEvents.JoinRoomServer}:${roomEntity.roomId}`, data);
     }
   }
 
-  @SubscribeMessage('clientRabbitsSet')
+  @SubscribeMessage(SocketEvents.ClientRabbitsSet)
   public async handleRabbitSet(client: Socket, body: IRabbitsSetReq) {
     //check is create room creator
     //contract call
@@ -127,7 +115,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       where: { roomId: body.roomId },
     });
     const userEntity = await this.userRepository.findOne({
-      where: { telegramUserId: body.telegramUserId },
+      where: { telegramUserId: body.telegramUserId.toString() },
       relations: { wallets: true },
     });
     const isRoomCreator = roomEntity.userId === userEntity.id;
@@ -174,7 +162,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       contractRoomId: roomEntity.contractRoomId,
       isRoomCreator,
     };
-    this.server.emit(`serverRabbitSet:${body.roomId}:${body.telegramUserId}`, res);
+    this.server.emit(`${SocketEvents.ServerRabbitSet}:${body.roomId}:${body.telegramUserId}`, res);
 
     if (!isRoomCreator) {
       this.server.emit(`gameStarted:${body.roomId}`);
@@ -190,7 +178,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     //contract call getGame. If winner, call
 
     const userEntity = await this.userRepository.findOne({
-      where: { telegramUserId: body.telegramUserId },
+      where: { telegramUserId: body.telegramUserId.toString() },
       relations: { wallets: true },
     });
     const roomEntity = await this.roomRepository.findOne({
@@ -297,11 +285,28 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     }
   }
 
+  @SubscribeMessage(SocketEvents.LeaveRoomClient)
+  public async handleLeaveRoom(client: Socket, body: { roomId: string; telegramUserId: number }) {
+    this.logger.log(`${body.telegramUserId} leaved room: ${body.roomId}`);
+    client.leave(body.roomId);
+    const roomEntity = await this.roomRepository.findOne({
+      where: { roomId: body.roomId },
+    });
+
+    if (roomEntity.status === RoomStatus.WaitingBets) {
+      await this.roomRepository.update(
+        { roomId: roomEntity.roomId },
+        { status: RoomStatus.Active },
+      );
+    }
+
+    this.server.emit(`${SocketEvents.LeaveRoomServer}:${body.roomId}`);
+  }
+
   public handleConnection(socket: Socket): void {
     this.logger.log(`Socket connected: ${socket.id}`);
   }
 
-  // it will be handled when a client disconnects from the server
   public handleDisconnect(socket: Socket): void {
     this.logger.log(`Socket disconnected: ${socket.id}`);
   }
@@ -313,7 +318,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     // The package methods read from files only, so we just shove it in /tmp/ and hope
     // there is no parallel execution.
     fs.writeFileSync(WITNESS_FILE, buff);
-    const { proof, publicSignals } = await snarkjs.groth16.prove(createZkey, WITNESS_FILE);
+    const { proof, publicSignals } = await snarkJS.groth16.prove(createZkey, WITNESS_FILE);
     const solidityProof = this.proofToSolidityInput(proof);
 
     return {
@@ -335,6 +340,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     ];
     const flatProofs = proofs.map((p) => bigInt(p));
 
+    // @ts-ignore
     return '0x' + flatProofs.map((x) => this.toHex32(x)).join('');
   }
 
@@ -352,7 +358,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     const witnessCalculator = await moveWC(buffer);
     const buff = await witnessCalculator.calculateWTNSBin(input);
     fs.writeFileSync(WITNESS_FILE, buff);
-    const { proof, publicSignals } = await snarkjs.groth16.prove(moveZkey, WITNESS_FILE);
+    const { proof, publicSignals } = await snarkJS.groth16.prove(moveZkey, WITNESS_FILE);
     const solidityProof = this.proofToSolidityInput(proof);
 
     return {
