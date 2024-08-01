@@ -51,7 +51,7 @@ export class ApiController {
     try {
       this.logger.log('getUserWallet call');
 
-      return await this.apiService.getWallet(query.telegramUserId);
+      return await this.apiService.getWallet(jwtData.telegramUserId.toString());
     } catch (e) {
       this.logger.error(`api getUserWallet error | ${e}`);
       const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;

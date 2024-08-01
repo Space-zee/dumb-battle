@@ -35,9 +35,6 @@ export interface IRabbitsSetReq {
   telegramUserId: number;
   roomId: string;
 }
-export interface IRabbitsSetRes {
-  contractRoomId: number;
-}
 
 export interface IUserMoveReq {
   coordinates: ICoordinates;

@@ -29,22 +29,43 @@ import abi from '../../abi/bunBattle.json';
 import { SocketEvents } from './enums';
 import * as snarkJS from 'snarkjs';
 import bigInt from 'big-integer';
+import { emptyProof } from '../../shared/constants/emptyProof.const';
+import { checkIsHit } from '../../shared/utils/checkIsHit';
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const createWC = require('../../../assets/circom/board/board_js/witness_calculator.js');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const moveWC = require('../../../assets/circom/move/move_js/witness_calculator.js');
 
-const createWasm = path.resolve(__dirname, '../../../assets/circom/board/board_js/board.wasm');
-const createZkey = path.resolve(__dirname, '../../../assets/circom/board/board_0001.zkey');
-const moveWasm = path.resolve(__dirname, '../../../assets/circom/move/move_js/move.wasm');
-const moveZkey = path.resolve(__dirname, '../../../assets/circom/move/move_0001.zkey');
+// const createWasm = path.resolve(__dirname, '../../../assets/circom/board/board_js/board.wasm');
+// const createZkey = path.resolve(__dirname, '../../../assets/circom/board/board_0001.zkey');
+// const moveWasm = path.resolve(__dirname, '../../../assets/circom/move/move_js/move.wasm');
+// const moveZkey = path.resolve(__dirname, '../../../assets/circom/move/move_0001.zkey');
 //const snarkjs = require('snarkjs');
 //const bigInt = require('big-integer');
-const WITNESS_FILE = '/tmp/witness';
-const emptyProof = '0x0000000000000000000000000000000000000000000000000000000000000000';
+//const WITNESS_FILE = '/tmp/witness';
 
 @Injectable()
 @WebSocketGateway({ cors: { origin: '*' } })
 export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect {
+  private readonly WITNESS_FILE = '/tmp/witness';
+  private readonly createWasm = path.resolve(
+    __dirname,
+    '../../../assets/circom/board/board_js/board.wasm',
+  );
+
+  private readonly createZkey = path.resolve(
+    __dirname,
+    '../../../assets/circom/board/board_0001.zkey',
+  );
+
+  private readonly moveWasm = path.resolve(
+    __dirname,
+    '../../../assets/circom/move/move_js/move.wasm',
+  );
+
+  private readonly moveZkey = path.resolve(__dirname, '../../../assets/circom/move/move_0001.zkey');
+
   private readonly logger = new Logger(GatewayService.name);
   private readonly url = `https://scroll-sepolia.blockpi.network/v1/rpc/64e6310d6e6234d8d05d9afcdc60a5ddab5a05a9`;
   private provider: ethers.providers.JsonRpcProvider;
@@ -104,13 +125,8 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   @SubscribeMessage(SocketEvents.ClientRabbitsSet)
-  public async handleRabbitSet(client: Socket, body: IRabbitsSetReq) {
-    //check is create room creator
-    //contract call
-    //await tx
-    //update room contract id
-    //send tx confirmed
-    //isGameStart user not creator
+  public async handleRabbitSet(client: Socket, body: IRabbitsSetReq): Promise<void> {
+    this.logger.log(`${body.telegramUserId} rabbit set room: ${body.roomId}`);
     const roomEntity = await this.roomRepository.findOne({
       where: { roomId: body.roomId },
     });
@@ -158,25 +174,18 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       );
       await joinGame.wait();
     }
-    const res = {
-      contractRoomId: roomEntity.contractRoomId,
-      isRoomCreator,
-    };
-    this.server.emit(`${SocketEvents.ServerRabbitSet}:${body.roomId}:${body.telegramUserId}`, res);
 
     if (!isRoomCreator) {
-      this.server.emit(`gameStarted:${body.roomId}`);
+      this.server.emit(`${SocketEvents.GameStarted}:${body.roomId}`);
+      await this.roomRepository.update({ roomId: body.roomId }, { status: RoomStatus.Game });
+    } else {
+      this.server.emit(`${SocketEvents.GameCreated}:${body.roomId}`);
     }
   }
 
-  @SubscribeMessage('clientUserMove')
-  public async handleUserMove(client: Socket, body: IUserMoveReq) {
-    //contract call to get last move
-    //check is last move compare to rabbits of current user (true/false)
-    //contract call to move
-    //await tx
-    //contract call getGame. If winner, call
-
+  @SubscribeMessage(SocketEvents.ClientUserMove)
+  public async handleUserMove(client: Socket, body: IUserMoveReq): Promise<void> {
+    this.logger.log(`${body.telegramUserId} move room: ${body.roomId}`);
     const userEntity = await this.userRepository.findOne({
       where: { telegramUserId: body.telegramUserId.toString() },
       relations: { wallets: true },
@@ -191,7 +200,8 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     const game = await contract.game(roomEntity.contractRoomId);
 
     if (game.winner !== ethers.constants.AddressZero) {
-      this.server.emit(`winner:${body.roomId}`, { address: game.winner });
+      console.log('winner');
+      this.server.emit(`${SocketEvents.Winner}:${body.roomId}`, { address: game.winner });
 
       return;
     }
@@ -206,16 +216,13 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       );
       await move.wait();
 
-      this.server.emit(`serverUserMove:${body.roomId}`, {
+      this.server.emit(`${SocketEvents.ServerUserMove}:${body.roomId}`, {
         lastMove: null,
         telegramUserId: body.telegramUserId,
       });
     } else {
-      const rabbit1 = body.userRabbits[0];
-      const rabbit2 = body.userRabbits[1];
-      const roomOwner = await this.userRepository.findOne({ where: { id: roomEntity.userId } });
       const boardHash =
-        Number(roomOwner.telegramUserId) === body.telegramUserId
+        Number(roomEntity.user.telegramUserId) === body.telegramUserId
           ? game.player1Hash.toString()
           : game.player2Hash.toString();
 
@@ -231,29 +238,12 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
         ],
       });
 
-      const compareCoordinates = (coordinates1: any, coordinates2: any) => {
-        return coordinates1.x === coordinates2.x && coordinates1.y === coordinates2.y;
-      };
-
       const moveCoordinates = {
         x: game.moves[game.moves.length - 1].x,
         y: game.moves[game.moves.length - 1].y,
       };
 
-      function containsPair(list: number[][], target: any): boolean {
-        for (const pair of list) {
-          if (
-            pair[0].toString() === target.x.toString() &&
-            pair[1].toString() === target.y.toString()
-          ) {
-            return true;
-          }
-        }
-
-        return false;
-      }
-
-      const wasRabbitHit = containsPair(
+      const wasRabbitHit = checkIsHit(
         [
           [body.userRabbits[0].x, body.userRabbits[0].y],
           [body.userRabbits[1].x, body.userRabbits[1].y],
@@ -272,7 +262,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
         },
       );
       await move.wait();
-      this.server.emit(`serverUserMove:${body.roomId}`, {
+      this.server.emit(`${SocketEvents.ServerUserMove}:${body.roomId}`, {
         lastMove: {
           coordinates: {
             x: game.moves[game.moves.length - 1].x,
@@ -286,7 +276,10 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   @SubscribeMessage(SocketEvents.LeaveRoomClient)
-  public async handleLeaveRoom(client: Socket, body: { roomId: string; telegramUserId: number }) {
+  public async handleLeaveRoom(
+    client: Socket,
+    body: { roomId: string; telegramUserId: number },
+  ): Promise<void> {
     this.logger.log(`${body.telegramUserId} leaved room: ${body.roomId}`);
     client.leave(body.roomId);
     const roomEntity = await this.roomRepository.findOne({
@@ -311,14 +304,17 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     this.logger.log(`Socket disconnected: ${socket.id}`);
   }
 
-  private async genCreateProof(input: any) {
-    const buffer = fs.readFileSync(createWasm);
+  private async genCreateProof(input: any): Promise<{ solidityProof: string; inputs: any }> {
+    const buffer = fs.readFileSync(this.createWasm);
     const witnessCalculator = await createWC(buffer);
     const buff = await witnessCalculator.calculateWTNSBin(input);
     // The package methods read from files only, so we just shove it in /tmp/ and hope
     // there is no parallel execution.
-    fs.writeFileSync(WITNESS_FILE, buff);
-    const { proof, publicSignals } = await snarkJS.groth16.prove(createZkey, WITNESS_FILE);
+    fs.writeFileSync(this.WITNESS_FILE, buff);
+    const { proof, publicSignals } = await snarkJS.groth16.prove(
+      this.createZkey,
+      this.WITNESS_FILE,
+    );
     const solidityProof = this.proofToSolidityInput(proof);
 
     return {
@@ -340,11 +336,12 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     ];
     const flatProofs = proofs.map((p) => bigInt(p));
 
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore
     return '0x' + flatProofs.map((x) => this.toHex32(x)).join('');
   }
 
-  private toHex32(num: number) {
+  private toHex32(num: number): string {
     let str = num.toString(16);
     while (str.length < 64) {
       str = '0' + str;
@@ -353,12 +350,12 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     return str;
   }
 
-  private async genMoveProof(input: any) {
-    const buffer = fs.readFileSync(moveWasm);
+  private async genMoveProof(input: any): Promise<{ solidityProof: string; inputs: any }> {
+    const buffer = fs.readFileSync(this.moveWasm);
     const witnessCalculator = await moveWC(buffer);
     const buff = await witnessCalculator.calculateWTNSBin(input);
-    fs.writeFileSync(WITNESS_FILE, buff);
-    const { proof, publicSignals } = await snarkJS.groth16.prove(moveZkey, WITNESS_FILE);
+    fs.writeFileSync(this.WITNESS_FILE, buff);
+    const { proof, publicSignals } = await snarkJS.groth16.prove(this.moveZkey, this.WITNESS_FILE);
     const solidityProof = this.proofToSolidityInput(proof);
 
     return {

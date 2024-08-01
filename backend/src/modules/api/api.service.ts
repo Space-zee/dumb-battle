@@ -49,7 +49,7 @@ export class ApiService {
     const balance = await this.provider.getBalance(userEntity.wallets[0].address);
 
     return {
-      balance: '12',
+      balance: formatEther(balance),
       wallet: userEntity.wallets[0].address,
     };
   }

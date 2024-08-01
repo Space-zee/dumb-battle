@@ -3,7 +3,11 @@ export enum SocketEvents {
   JoinRoomServer = 'joinRoomServer',
   ReadyForBattle = 'readyForBattle',
   ClientRabbitsSet = 'clientRabbitsSet',
-  ServerRabbitSet = 'serverRabbitSet',
+  GameCreated = 'gameCreated',
+  GameStarted = 'gameStarted',
+  ClientUserMove = 'clientUserMove',
+  ServerUserMove = 'serverUserMove',
+  Winner = 'winner',
   LeaveRoomClient = 'leaveRoomClient',
   LeaveRoomServer = 'leaveRoomServer',
 }
