@@ -102,6 +102,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
 
     if (numOfPlayers === 2) {
       const data: IReadyForBattle = {
+        gameId: roomEntity.id,
         isGameCreated: !!roomEntity.contractRoomId,
         bet: roomEntity.bet,
         roomId: roomEntity.roomId,
@@ -115,6 +116,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       }
     } else {
       const data: IJoinRoomRes = {
+        gameId: roomEntity.id,
         isGameCreated: !!roomEntity.contractRoomId,
         bet: roomEntity.bet,
         roomId: roomEntity.roomId,
@@ -201,17 +203,6 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     const contract = getBattleshipContract(signer);
     const game = await contract.game(roomEntity.contractRoomId);
 
-    if (game.winner !== ethers.constants.AddressZero) {
-      console.log('winner');
-      this.server.emit(`${SocketEvents.Winner}:${body.roomId}`, { address: game.winner });
-      await this.roomRepository.update(
-        { roomId: roomEntity.roomId },
-        { status: RoomStatus.Closed },
-      );
-
-      return;
-    }
-
     if (!game.moves.length) {
       const move = await contract.submitMove(
         roomEntity.contractRoomId,
@@ -269,6 +260,16 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       );
       await move.wait();
       const gameAfterTx = await contract.game(roomEntity.contractRoomId);
+      if (gameAfterTx.winner !== ethers.constants.AddressZero) {
+        console.log('winner');
+        this.server.emit(`${SocketEvents.Winner}:${body.roomId}`, { address: game.winner });
+        await this.roomRepository.update(
+          { roomId: roomEntity.roomId },
+          { status: RoomStatus.Closed },
+        );
+
+        return;
+      }
       this.server.emit(`${SocketEvents.ServerUserMove}:${body.roomId}`, {
         lastMove: {
           x: gameAfterTx.moves[gameAfterTx.moves.length - 2].x.toNumber(),
