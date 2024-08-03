@@ -3,22 +3,12 @@ import { UserEntity } from '../../../db/entities/user.entity';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ethers } from 'ethers';
-import { getBattleshipContract } from '../../shared/utils/getBattleshipContract';
-import { ICreateGameReq, IGetActiveRoomsRes } from './interfaces';
-import * as fs from 'fs';
+import { IGetActiveRoomsRes } from './interfaces';
 import { RoomEntity } from '../../../db/entities/room.entity';
 import { RoomStatus } from './enums';
-import * as path from 'path';
 import { formatEther } from 'ethers/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
-
-const createWC = require('../../../assets/circom/board/board_js/witness_calculator.js');
-const createWasm = path.resolve(__dirname, '../../assets/circom/board/board_js/board.wasm');
-const createZkey = path.resolve(__dirname, '../../../assets/circom/board/board_0001.zkey');
-const snarkjs = require('snarkjs');
-const bigInt = require('big-integer');
-const WITNESS_FILE = '/tmp/witness';
 
 @Injectable()
 export class ApiService {
@@ -51,7 +41,7 @@ export class ApiService {
     });
   }
 
-  public async getWallet(telegramUserId: number): Promise<{ wallet: string; balance: string }> {
+  public async getWallet(telegramUserId: string): Promise<{ wallet: string; balance: string }> {
     const userEntity = await this.userRepository.findOne({
       where: { telegramUserId },
       relations: { wallets: true },
@@ -64,7 +54,7 @@ export class ApiService {
     };
   }
 
-  public async createGame(telegramUserId: number, data: ICreateLobbyReq): Promise<ICreateLobbyRes> {
+  public async createGame(telegramUserId: string, data: ICreateLobbyReq): Promise<ICreateLobbyRes> {
     try {
       const user = await this.userRepository.findOne({
         where: { telegramUserId },
@@ -85,45 +75,4 @@ export class ApiService {
       this.logger.error(`createGame error | ${e}`);
     }
   }
-
-  private async genCreateProof(input: any) {
-    const buffer = fs.readFileSync(createWasm);
-    const witnessCalculator = await createWC(buffer);
-    const buff = await witnessCalculator.calculateWTNSBin(input);
-    // The package methods read from files only, so we just shove it in /tmp/ and hope
-    // there is no parallel execution.
-    fs.writeFileSync(WITNESS_FILE, buff);
-    const { proof, publicSignals } = await snarkjs.groth16.prove(createZkey, WITNESS_FILE);
-    const solidityProof = this.proofToSolidityInput(proof);
-
-    return {
-      solidityProof: solidityProof,
-      inputs: publicSignals,
-    };
-  }
-
-  private proofToSolidityInput(proof: any): string {
-    const proofs: string[] = [
-      proof.pi_a[0],
-      proof.pi_a[1],
-      proof.pi_b[0][1],
-      proof.pi_b[0][0],
-      proof.pi_b[1][1],
-      proof.pi_b[1][0],
-      proof.pi_c[0],
-      proof.pi_c[1],
-    ];
-    const flatProofs = proofs.map((p) => bigInt(p));
-
-    return '0x' + flatProofs.map((x) => toHex32(x)).join('');
-  }
 }
-
-const toHex32 = (num: number) => {
-  let str = num.toString(16);
-  while (str.length < 64) {
-    str = '0' + str;
-  }
-
-  return str;
-};

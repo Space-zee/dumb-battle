@@ -11,23 +11,18 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiService } from './api.service';
-import { RoomEntity } from '../../../db/entities/room.entity';
 import { IGetActiveRoomsRes } from './interfaces';
 import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { parseJwt } from '../../shared/utils/parseJwt';
 
 @Controller()
-@UseGuards(JwtAuthGuard) 
+//@UseGuards(JwtAuthGuard)
 export class ApiController {
   private readonly logger = new Logger(ApiService.name);
   constructor(private readonly apiService: ApiService) {}
 
   @Get('getActiveGames')
-  public async getActiveGames(
-    @Query() query: any,
-    @Req() request: Request,
-  ): Promise<IGetActiveRoomsRes[]> {
+  public async getActiveGames(): Promise<IGetActiveRoomsRes[]> {
     try {
       this.logger.log('getActiveGames call');
 
@@ -52,10 +47,11 @@ export class ApiController {
     @Query() query: any,
     @Req() request: Request,
   ): Promise<{ wallet: string; balance: string }> {
+    const jwtData = parseJwt(request.headers['authorization']);
     try {
       this.logger.log('getUserWallet call');
 
-      return await this.apiService.getWallet(query.telegramUserId);
+      return await this.apiService.getWallet(jwtData.telegramUserId.toString());
     } catch (e) {
       this.logger.error(`api getUserWallet error | ${e}`);
       const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
@@ -80,9 +76,8 @@ export class ApiController {
       this.logger.log('createGames call');
 
       const jwtData = parseJwt(request.headers['authorization']);
-      console.log('jwtData', jwtData);
 
-      return await this.apiService.createGame(jwtData.telegramUserId, payload);
+      return await this.apiService.createGame(jwtData.telegramUserId.toString(), payload);
     } catch (e) {
       this.logger.error(`api createGames error | ${e}`);
       const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;

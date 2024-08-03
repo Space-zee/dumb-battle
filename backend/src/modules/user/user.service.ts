@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name);
-  private readonly encryptionKey : string;
+  private readonly encryptionKey: string;
   private readonly encryptionAlgorithm = 'aes-256-cbc';
 
   constructor(
@@ -19,16 +19,22 @@ export class UserService {
     private readonly userRepository: Repository<UserEntity>,
     @InjectRepository(WalletEntity)
     private readonly walletRepository: Repository<WalletEntity>,
-    private configServise: ConfigService,
+    private configService: ConfigService,
   ) {
-    this.encryptionKey = configServise.get("ENCRYPTION_KEY");
+    this.encryptionKey = this.configService.get('ENCRYPTION_KEY');
   }
 
   private encrypt(text: string): string {
     const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(this.encryptionAlgorithm, Buffer.from(this.encryptionKey), iv);
+    console.log('this.encryptionKey', this.encryptionKey);
+    const cipher = crypto.createCipheriv(
+      this.encryptionAlgorithm,
+      Buffer.from(this.encryptionKey),
+      iv,
+    );
     let encrypted = cipher.update(text);
     encrypted = Buffer.concat([encrypted, cipher.final()]);
+
     return `${iv.toString('hex')}:${encrypted.toString('hex')}`;
   }
 
@@ -36,18 +42,24 @@ export class UserService {
     const textParts = text.split(':');
     const iv = Buffer.from(textParts.shift(), 'hex');
     const encryptedText = Buffer.from(textParts.join(':'), 'hex');
-    const decipher = crypto.createDecipheriv(this.encryptionAlgorithm, Buffer.from(this.encryptionKey), iv);
+    const decipher = crypto.createDecipheriv(
+      this.encryptionAlgorithm,
+      Buffer.from(this.encryptionKey),
+      iv,
+    );
     let decrypted = decipher.update(encryptedText);
     decrypted = Buffer.concat([decrypted, decipher.final()]);
+
     return decrypted.toString();
   }
 
   public async createUser(
-    telegramUserId: number,
+    telegramUserId: string,
     firstName: string,
     username: string,
     photo: string
   ): Promise<IResponse<{ wallet: WalletEntity }>> {
+    console.log(telegramUserId);
     this.logger.log(`createUser | ${telegramUserId}`);
     try {
       let userEntity = await this.userRepository.findOne({
@@ -64,6 +76,12 @@ export class UserService {
         });
         await userEntity.save();
       }
+      console.log('userEntityBefore', userEntity);
+      const userEntityA = await this.userRepository.findOne({
+        where: { telegramUserId },
+        relations: { wallets: true },
+      });
+      console.log('userEntityA', userEntityA);
 
       return {
         success: true,
@@ -81,7 +99,7 @@ export class UserService {
   }
 
   public async createWallet(
-    telegramUserId: number,
+    telegramUserId: string,
   ): Promise<IResponse<{ address: string; privateKey: string }>> {
     const userEntity = await this.userRepository.findOne({
       where: { telegramUserId },

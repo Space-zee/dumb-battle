@@ -8,7 +8,7 @@ export class UserEntity extends BaseEntity {
   public id: number;
 
   @Column({ name: 'telegramUserId', nullable: false, type: 'bigint', unique: true })
-  public telegramUserId: number;
+  public telegramUserId: string;
 
   @Column({ name: 'firstName', length: 50, charset: 'utf8', nullable: true })
   public firstName: string;

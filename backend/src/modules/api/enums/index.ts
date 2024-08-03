@@ -3,4 +3,5 @@ export enum RoomStatus {
   Deleted = 'deleted',
   Closed = 'closed',
   Game = 'game',
+  WaitingBets = 'waitingBets',
 }
