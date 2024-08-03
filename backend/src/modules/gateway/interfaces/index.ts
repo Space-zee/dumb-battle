@@ -1,5 +1,4 @@
 export interface ICreateLobbyReq {
-  telegramUserId: number;
   bet: string;
 }
 
@@ -14,20 +13,29 @@ export interface IJoinRoomReq {
 }
 
 export interface IJoinRoomRes {
+  gameId: number;
+  isGameCreated: boolean;
   bet: string;
   roomId: string;
-  username: string;
+  creatorName: string;
+  opponentName?: string;
+  roomCreatorId: number;
+}
+
+export interface IReadyForBattle {
+  gameId: number;
+  isGameCreated: boolean;
+  bet: string;
+  roomId: string;
+  creatorName: string;
   opponentName: string;
-  roomCreator: number;
+  roomCreatorId: number;
 }
 
 export interface IRabbitsSetReq {
   rabbits: ICoordinates[];
   telegramUserId: number;
   roomId: string;
-}
-export interface IRabbitsSetRes {
-  contractRoomId: number;
 }
 
 export interface IUserMoveReq {

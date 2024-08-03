@@ -1,22 +1,30 @@
-import { Controller, Get, HttpException, HttpStatus, Logger, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpException,
+  HttpStatus,
+  Logger,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiService } from './api.service';
-import { RoomEntity } from '../../../db/entities/room.entity';
 import { IGetActiveRoomsRes } from './interfaces';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
+import { parseJwt } from '../../shared/utils/parseJwt';
 
 @Controller()
-@UseGuards(JwtAuthGuard) 
+//@UseGuards(JwtAuthGuard)
 export class ApiController {
   private readonly logger = new Logger(ApiService.name);
   constructor(private readonly apiService: ApiService) {}
 
-  @Get('getActiveRooms')
-  public async getActiveRooms(
-    @Query() query: any,
-    @Req() request: Request,
-  ): Promise<IGetActiveRoomsRes[]> {
+  @Get('getActiveGames')
+  public async getActiveGames(): Promise<IGetActiveRoomsRes[]> {
     try {
-      this.logger.log('getActiveRooms call');
+      this.logger.log('getActiveGames call');
 
       return await this.apiService.getBattles();
     } catch (e) {
@@ -39,12 +47,39 @@ export class ApiController {
     @Query() query: any,
     @Req() request: Request,
   ): Promise<{ wallet: string; balance: string }> {
+    const jwtData = parseJwt(request.headers['authorization']);
     try {
-      this.logger.log('getActiveRooms call');
+      this.logger.log('getUserWallet call');
 
-      return await this.apiService.getWallet(query.telegramUserId);
+      return await this.apiService.getWallet(jwtData.telegramUserId.toString());
     } catch (e) {
       this.logger.error(`api getUserWallet error | ${e}`);
+      const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
+      throw new HttpException(
+        {
+          status: status,
+          error: e?.response?.error
+            ? e.response.error
+            : 'There was a problem processing your request',
+        },
+        status,
+      );
+    }
+  }
+
+  @Post('createGame')
+  public async createGame(
+    @Body() payload: ICreateLobbyReq,
+    @Req() request: Request,
+  ): Promise<ICreateLobbyRes> {
+    try {
+      this.logger.log('createGames call');
+
+      const jwtData = parseJwt(request.headers['authorization']);
+
+      return await this.apiService.createGame(jwtData.telegramUserId.toString(), payload);
+    } catch (e) {
+      this.logger.error(`api createGames error | ${e}`);
       const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
         {

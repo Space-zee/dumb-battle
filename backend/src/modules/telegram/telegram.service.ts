@@ -28,7 +28,7 @@ export class TelegramService {
   async startCommand(ctx: Context) {
     this.logger.log(`Start bot | ${ctx.from.id}`);
     const userCreate = await this.userService.createUser(
-      ctx.from.id,
+      ctx.from.id.toString(),
       ctx.from.first_name,
       ctx.from.username,
     );
@@ -42,7 +42,7 @@ export class TelegramService {
     }
 
     const jwtToken = await this.authService.generateJwt(ctx.from.id);
-    const appUrlWithToken = `${uiUrl}?token=${jwtToken}`;
+    const appUrlWithToken = `${uiUrl}/games?token=${jwtToken}`;
 
     if (userCreate.data.wallet) {
       const options = {
@@ -94,7 +94,7 @@ export class TelegramService {
   public async onCreateAccount(ctx: Context) {
     this.logger.log(`createWallet click | ${ctx.from.id}`);
     await ctx.deleteMessage();
-    const res = await this.userService.createWallet(ctx.from.id);
+    const res = await this.userService.createWallet(ctx.from.id.toString());
 
     if (!res.success) {
       await ctx.reply('Creation error, please try again /start');
@@ -103,8 +103,8 @@ export class TelegramService {
     }
 
     const jwtToken = await this.authService.generateJwt(ctx.from.id);
-    const appUrlWithToken = `${uiUrl}?token=${jwtToken}`;
-    
+    const appUrlWithToken = `${uiUrl}/games?token=${jwtToken}`;
+
     const options = {
       reply_markup: {
         inline_keyboard: [

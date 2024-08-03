@@ -18,8 +18,8 @@ import { AuthModule } from './modules/auth/auth.module';
     }),
     TelegrafModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: async  (configService: ConfigService) => ({ 
-        token: configService.get<string>("TELEGRAM_BOT_TOKEN"),
+      useFactory: async (configService: ConfigService) => ({
+        token: configService.get<string>('TELEGRAM_BOT_TOKEN'),
       }),
       inject: [ConfigService],
     }),
@@ -27,13 +27,13 @@ import { AuthModule } from './modules/auth/auth.module';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         type: 'mysql',
-        host: configService.get<string>("DB_HOST"),
-        port: configService.get<number>("DB_PORT"),
-        username: configService.get<string>("DB_USERNAME"),
-        password: configService.get<string>("DB_PASSWORD"),
-        database: configService.get<string>("DB_NAME"),
+        host: configService.get<string>('DB_HOST'),
+        port: configService.get<number>('DB_PORT'),
+        username: configService.get<string>('DB_USERNAME'),
+        password: configService.get<string>('DB_PASSWORD'),
+        database: configService.get<string>('DB_NAME'),
         timezone: 'Z',
-        synchronize: true,
+        synchronize: false,
         entities: ['dist/db/entities/*.entity.js'],
         migrations: ['dist/db/migrations/*.js'],
         charset: 'utf8mb4',
@@ -43,7 +43,7 @@ import { AuthModule } from './modules/auth/auth.module';
     TelegramModule,
     GatewayModule,
     ApiModule,
-    AuthModule
+    AuthModule,
   ],
 })
 export class AppModule {}
