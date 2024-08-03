@@ -109,8 +109,10 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
         opponentName: user.username,
         roomCreatorId: Number(roomEntity.user.telegramUserId),
       };
-      await this.roomRepository.update(roomEntity.id, { status: RoomStatus.WaitingBets });
-      this.server.emit(`${SocketEvents.ReadyForBattle}:${roomEntity.roomId}`, data);
+      if (roomEntity.status === RoomStatus.Active) {
+        await this.roomRepository.update(roomEntity.id, { status: RoomStatus.WaitingBets });
+        this.server.emit(`${SocketEvents.ReadyForBattle}:${roomEntity.roomId}`, data);
+      }
     } else {
       const data: IJoinRoomRes = {
         isGameCreated: !!roomEntity.contractRoomId,
@@ -202,6 +204,10 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     if (game.winner !== ethers.constants.AddressZero) {
       console.log('winner');
       this.server.emit(`${SocketEvents.Winner}:${body.roomId}`, { address: game.winner });
+      await this.roomRepository.update(
+        { roomId: roomEntity.roomId },
+        { status: RoomStatus.Closed },
+      );
 
       return;
     }
@@ -262,13 +268,12 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
         },
       );
       await move.wait();
+      const gameAfterTx = await contract.game(roomEntity.contractRoomId);
       this.server.emit(`${SocketEvents.ServerUserMove}:${body.roomId}`, {
         lastMove: {
-          coordinates: {
-            x: game.moves[game.moves.length - 1].x,
-            y: game.moves[game.moves.length - 1].y,
-          },
-          isHit: game.moves[game.moves.length - 1].isHit,
+          x: gameAfterTx.moves[gameAfterTx.moves.length - 2].x.toNumber(),
+          y: gameAfterTx.moves[gameAfterTx.moves.length - 2].y.toNumber(),
+          isHit: gameAfterTx.moves[gameAfterTx.moves.length - 2].isHit,
         },
         telegramUserId: body.telegramUserId,
       });
@@ -286,6 +291,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       where: { roomId: body.roomId },
     });
 
+    console.log('roomEntity', roomEntity);
     if (roomEntity.status === RoomStatus.WaitingBets) {
       await this.roomRepository.update(
         { roomId: roomEntity.roomId },
