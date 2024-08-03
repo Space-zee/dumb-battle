@@ -30,6 +30,7 @@ import * as snarkJS from 'snarkjs';
 import bigInt from 'big-integer';
 import { emptyProof } from '../../shared/constants/emptyProof.const';
 import { checkIsHit } from '../../shared/utils/checkIsHit';
+import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const createWC = require('../../../assets/circom/board/board_js/witness_calculator.js');
