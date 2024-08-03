@@ -57,6 +57,7 @@ export class UserService {
     telegramUserId: string,
     firstName: string,
     username: string,
+    photo: string
   ): Promise<IResponse<{ wallet: WalletEntity }>> {
     console.log(telegramUserId);
     this.logger.log(`createUser | ${telegramUserId}`);
@@ -70,6 +71,7 @@ export class UserService {
           telegramUserId,
           firstName,
           username,
+          photo,
           nonce: Math.floor(Math.random() * 90000) + 10000,
         });
         await userEntity.save();

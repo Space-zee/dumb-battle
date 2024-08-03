@@ -67,7 +67,6 @@ export class ApiService {
         bet: data.bet,
       });
       await this.roomRepository.save(roomEntity);
-
       return {
         bet: data.bet,
         roomId: roomEntity.roomId,

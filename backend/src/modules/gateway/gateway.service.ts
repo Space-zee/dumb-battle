@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UserEntity } from '../../../db/entities/user.entity';
-import { UserService } from '../user/user.service';
 import { Repository } from 'typeorm';
 import { BigNumber, ethers } from 'ethers';
 import {
@@ -77,7 +76,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     private readonly roomRepository: Repository<RoomEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
-    private userService: UserService,
+    private readonly wsJwtAuthGuard: WsJwtAuthGuard,
   ) {
     this.provider = new ethers.providers.JsonRpcProvider(this.url);
   }
@@ -150,8 +149,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     };
     const proof = await this.genCreateProof(playerCreate);
 
-    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
-    const signer = new ethers.Wallet(privateKey, this.provider);
+    const signer = new ethers.Wallet(userEntity.wallets[0].privateKey, this.provider);
     const contract = getBattleshipContract(signer);
     const contractInterface = new ethers.utils.Interface(abi);
 
@@ -198,8 +196,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       where: { roomId: body.roomId },
       relations: { user: true },
     });
-    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
-    const signer = new ethers.Wallet(privateKey, this.provider);
+    const signer = new ethers.Wallet(userEntity.wallets[0].privateKey, this.provider);
     const contract = getBattleshipContract(signer);
     const game = await contract.game(roomEntity.contractRoomId);
 

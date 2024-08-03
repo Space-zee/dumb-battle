@@ -28,7 +28,7 @@ export class ApiController {
 
       return await this.apiService.getBattles();
     } catch (e) {
-      this.logger.error(`api getActiveRooms error | ${e}`);
+      this.logger.error(`api getActiveGames error | ${e}`);
       const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
         {
