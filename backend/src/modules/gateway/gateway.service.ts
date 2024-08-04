@@ -30,6 +30,8 @@ import * as snarkJS from 'snarkjs';
 import bigInt from 'big-integer';
 import { emptyProof } from '../../shared/constants/emptyProof.const';
 import { checkIsHit } from '../../shared/utils/checkIsHit';
+import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
+import { UserService } from '../user/user.service';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const createWC = require('../../../assets/circom/board/board_js/witness_calculator.js');
@@ -77,6 +79,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
     private readonly wsJwtAuthGuard: WsJwtAuthGuard,
+    private readonly userService: UserService
   ) {
     this.provider = new ethers.providers.JsonRpcProvider(this.url);
   }
@@ -149,7 +152,8 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     };
     const proof = await this.genCreateProof(playerCreate);
 
-    const signer = new ethers.Wallet(userEntity.wallets[0].privateKey, this.provider);
+    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
+    const signer = new ethers.Wallet(privateKey, this.provider);
     const contract = getBattleshipContract(signer);
     const contractInterface = new ethers.utils.Interface(abi);
 
@@ -196,7 +200,8 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       where: { roomId: body.roomId },
       relations: { user: true },
     });
-    const signer = new ethers.Wallet(userEntity.wallets[0].privateKey, this.provider);
+    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
+    const signer = new ethers.Wallet(privateKey, this.provider);
     const contract = getBattleshipContract(signer);
     const game = await contract.game(roomEntity.contractRoomId);
 
@@ -299,6 +304,62 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
 
     this.server.emit(`${SocketEvents.LeaveRoomServer}:${body.roomId}`);
   }
+
+  @SubscribeMessage(SocketEvents.GetGameState)
+public async handleGetGameState(client: Socket, body: { roomId: string; telegramUserId: number }): Promise<void> {
+  this.logger.log(`Getting game state for room: ${body.roomId}, user: ${body.telegramUserId}`);
+
+  const roomEntity = await this.roomRepository.findOne({
+    where: { roomId: body.roomId },
+    relations: { user: true },
+  });
+
+  if (!roomEntity) {
+    this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, { error: 'Room not found' });
+    return;
+  }
+
+  const userEntity = await this.userRepository.findOne({
+    where: { telegramUserId: body.telegramUserId.toString() },
+    relations: { wallets: true },
+  });
+
+  if (!userEntity) {
+    this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, { error: 'User not found' });
+    return;
+  }
+
+  try {
+    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
+    const signer = new ethers.Wallet(privateKey, this.provider);
+    const contract = getBattleshipContract(signer);
+
+    const gameState = await contract.game(roomEntity.contractRoomId);
+
+    const formattedGameState = {
+      player1: gameState.player1,
+      player2: gameState.player2,
+      player1Hash: gameState.player1Hash.toString(),
+      player2Hash: gameState.player2Hash.toString(),
+      winner: gameState.winner,
+      totalBetAmount: ethers.utils.formatEther(gameState.totalBetAmount),
+      nextMoveDeadline: gameState.nextMoveDeadline.toNumber(),
+      moves: gameState.moves.map(move => ({
+        x: move.x.toNumber(),
+        y: move.y.toNumber(),
+        isHit: move.isHit
+      })),
+      currentTurn: gameState.moves.length % 2 === 0 ? gameState.player1 : gameState.player2,
+      isUserTurn: (gameState.moves.length % 2 === 0 && gameState.player1.toLowerCase() === signer.address.toLowerCase()) ||
+                  (gameState.moves.length % 2 !== 0 && gameState.player2.toLowerCase() === signer.address.toLowerCase())
+    };
+
+    this.server.emit(`${SocketEvents.GetGameStateSuccess}:${body.roomId}`, formattedGameState);
+  } catch (error) {
+    this.logger.error(`Error getting game state: ${error.message}`);
+    this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, { error: 'Failed to get game state' });
+  }
+}
 
   public handleConnection(socket: Socket): void {
     this.logger.log(`Socket connected: ${socket.id}`);
