@@ -9,6 +9,7 @@ import { RoomStatus } from './enums';
 import { formatEther } from 'ethers/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
+import { TransactionEntity } from '../../../db/entities/transaction.entity';
 
 @Injectable()
 export class ApiService {
@@ -27,7 +28,7 @@ export class ApiService {
 
   public async getBattles(): Promise<IGetActiveRoomsRes[]> {
     const roomEntity = await this.roomRepository.find({
-      relations: { user: true },
+      relations: ['gameCreatorUser'],
       where: { status: RoomStatus.Active },
     });
 
@@ -35,8 +36,8 @@ export class ApiService {
       return {
         bet: el.bet,
         roomId: el.roomId,
-        creatorId: Number(el.user.telegramUserId),
-        username: el.user.username ? el.user.username : 'Rand',
+        creatorId: Number(el.gameCreatorUser.telegramUserId),
+        username: el.gameCreatorUser.username ? el.gameCreatorUser.username : 'Rand',
       };
     });
   }
@@ -59,14 +60,14 @@ export class ApiService {
       const user = await this.userRepository.findOne({
         where: { telegramUserId },
       });
-      console.log(user);
       const roomEntity = this.roomRepository.create({
         roomId: uuidv4(),
         status: RoomStatus.Active,
-        userId: user.id,
+        gameCreatorUserId: user.id,
         bet: data.bet,
       });
       await this.roomRepository.save(roomEntity);
+
       return {
         bet: data.bet,
         roomId: roomEntity.roomId,

@@ -41,7 +41,7 @@ export class UserEntity extends BaseEntity {
   @JoinColumn({ name: 'userId' })
   wallets: WalletEntity[];
 
-  @OneToMany(() => RoomEntity, (room) => room.user)
+  @OneToMany(() => RoomEntity, (room) => room.gameCreatorUserId)
   @JoinColumn({ name: 'userId' })
   rooms: RoomEntity[];
 }
