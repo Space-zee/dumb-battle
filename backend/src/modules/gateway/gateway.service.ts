@@ -31,19 +31,13 @@ import bigInt from 'big-integer';
 import { emptyProof } from '../../shared/constants/emptyProof.const';
 import { checkIsHit } from '../../shared/utils/checkIsHit';
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
+import { TransactionEntity } from '../../../db/entities/transaction.entity';
+import { TransactionStatusEnum, TransactionTypeEnum } from '../../shared/enum/operation.enum';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const createWC = require('../../../assets/circom/board/board_js/witness_calculator.js');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const moveWC = require('../../../assets/circom/move/move_js/witness_calculator.js');
-
-// const createWasm = path.resolve(__dirname, '../../../assets/circom/board/board_js/board.wasm');
-// const createZkey = path.resolve(__dirname, '../../../assets/circom/board/board_0001.zkey');
-// const moveWasm = path.resolve(__dirname, '../../../assets/circom/move/move_js/move.wasm');
-// const moveZkey = path.resolve(__dirname, '../../../assets/circom/move/move_0001.zkey');
-//const snarkjs = require('snarkjs');
-//const bigInt = require('big-integer');
-//const WITNESS_FILE = '/tmp/witness';
 
 @Injectable()
 @WebSocketGateway({ cors: { origin: '*' } })
@@ -77,6 +71,8 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     private readonly roomRepository: Repository<RoomEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
+    @InjectRepository(TransactionEntity)
+    private readonly transactionRepository: Repository<TransactionEntity>,
     private readonly wsJwtAuthGuard: WsJwtAuthGuard,
   ) {
     this.provider = new ethers.providers.JsonRpcProvider(this.url);
@@ -166,6 +162,13 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       const receipt = await createGame.wait();
       const contractRoomId = contractInterface.parseLog(receipt.events[1]).args[0].toString();
       await this.roomRepository.update(roomEntity.id, { contractRoomId: Number(contractRoomId) });
+      await this.createTxRecord(
+        roomEntity.id,
+        userEntity.id,
+        TransactionStatusEnum.Success,
+        TransactionTypeEnum.CreateGame,
+        createGame.hash,
+      );
     } else {
       const joinGame = await contract.joinGame(
         roomEntity.contractRoomId,
@@ -176,11 +179,22 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
         },
       );
       await joinGame.wait();
+      await this.createTxRecord(
+        roomEntity.id,
+        userEntity.id,
+        TransactionStatusEnum.Success,
+        TransactionTypeEnum.CreateGame,
+        joinGame.hash,
+      );
     }
 
     if (!isRoomCreator) {
-      this.server.emit(`${SocketEvents.GameStarted}:${body.roomId}`);
-      await this.roomRepository.update({ roomId: body.roomId }, { status: RoomStatus.Game });
+      const moveDeadline = Number(new Date()) + 60000;
+      this.server.emit(`${SocketEvents.GameStarted}:${body.roomId}`, { moveDeadline });
+      await this.roomRepository.update(
+        { roomId: body.roomId },
+        { status: RoomStatus.Game, moveDeadline: moveDeadline.toString() },
+      );
     } else {
       this.server.emit(`${SocketEvents.GameCreated}:${body.roomId}`);
     }
@@ -210,8 +224,22 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
         false,
       );
       await move.wait();
+      const moveDeadline = Number(new Date()) + 60000;
+
+      await this.createTxRecord(
+        roomEntity.id,
+        userEntity.id,
+        TransactionStatusEnum.Success,
+        TransactionTypeEnum.Move,
+        move.hash,
+      );
+      await this.roomRepository.update(
+        { roomId: body.roomId },
+        { status: RoomStatus.Game, moveDeadline: moveDeadline.toString() },
+      );
 
       this.server.emit(`${SocketEvents.ServerUserMove}:${body.roomId}`, {
+        moveDeadline,
         lastMove: null,
         telegramUserId: body.telegramUserId,
       });
@@ -257,6 +285,21 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
         },
       );
       await move.wait();
+
+      const moveDeadline = Number(new Date()) + 60000;
+
+      await this.createTxRecord(
+        roomEntity.id,
+        userEntity.id,
+        TransactionStatusEnum.Success,
+        TransactionTypeEnum.Move,
+        move.hash,
+      );
+      await this.roomRepository.update(
+        { roomId: body.roomId },
+        { status: RoomStatus.Game, moveDeadline: moveDeadline.toString() },
+      );
+
       const gameAfterTx = await contract.game(roomEntity.contractRoomId);
       if (gameAfterTx.winner !== ethers.constants.AddressZero) {
         console.log('winner');
@@ -269,6 +312,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
         return;
       }
       this.server.emit(`${SocketEvents.ServerUserMove}:${body.roomId}`, {
+        moveDeadline,
         lastMove: {
           x: gameAfterTx.moves[gameAfterTx.moves.length - 2].x.toNumber(),
           y: gameAfterTx.moves[gameAfterTx.moves.length - 2].y.toNumber(),
@@ -367,5 +411,22 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       solidityProof: solidityProof,
       inputs: publicSignals,
     };
+  }
+
+  private async createTxRecord(
+    userId: number,
+    roomId: number,
+    status: TransactionStatusEnum,
+    type: TransactionTypeEnum,
+    hash: string,
+  ): Promise<void> {
+    const txEntity = this.transactionRepository.create({
+      userId,
+      roomId,
+      status,
+      type,
+      hash,
+    });
+    await txEntity.save();
   }
 }

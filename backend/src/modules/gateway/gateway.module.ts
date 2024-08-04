@@ -7,11 +7,16 @@ import { GatewayService } from './gateway.service';
 import { RoomEntity } from '../../../db/entities/room.entity';
 import { UserModule } from '../user/user.module';
 import { AuthModule } from '../auth/auth.module';
+import { TransactionEntity } from '../../../db/entities/transaction.entity';
 
 dotenv.config();
 
 @Module({
-  imports: [TypeOrmModule.forFeature([UserEntity, WalletEntity, RoomEntity]), UserModule, AuthModule],
+  imports: [
+    TypeOrmModule.forFeature([UserEntity, WalletEntity, RoomEntity, TransactionEntity]),
+    UserModule,
+    AuthModule,
+  ],
   providers: [GatewayService],
   exports: [GatewayService],
 })

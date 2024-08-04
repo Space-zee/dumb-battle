@@ -1,28 +1,26 @@
 import { BaseEntity, Column, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { UserEntity } from './user.entity';
+import { RoomEntity } from './room.entity';
 
-@Entity('Room')
-export class RoomEntity extends BaseEntity {
+@Entity('Transaction')
+export class TransactionEntity extends BaseEntity {
   @PrimaryGeneratedColumn({ name: 'id' })
   public id: number;
 
   @Column({ name: 'userId', nullable: false })
   public userId: number;
 
-  @Column({ name: 'roomId', length: 255, nullable: false })
-  public roomId: string;
+  @Column({ name: 'roomId', nullable: false })
+  public roomId: number;
 
-  @Column({ name: 'contractRoomId', nullable: true })
-  public contractRoomId: number;
+  @Column({ name: 'hash', length: 255, nullable: false })
+  public hash: string;
+
+  @Column({ name: 'type', length: 255, nullable: false })
+  public type: string;
 
   @Column({ name: 'status', length: 255, nullable: false })
   public status: string;
-
-  @Column({ name: 'bet', length: 255, nullable: false })
-  public bet: string;
-
-  @Column({ name: 'moveDeadline', nullable: true, type: 'bigint' })
-  public moveDeadline: string;
 
   @Column({
     name: 'createdAt',
@@ -35,4 +33,7 @@ export class RoomEntity extends BaseEntity {
 
   @ManyToOne(() => UserEntity, (user) => user.rooms)
   user: UserEntity;
+
+  @ManyToOne(() => RoomEntity)
+  room: RoomEntity;
 }
