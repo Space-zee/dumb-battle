@@ -20,7 +20,7 @@ import {
   IReadyForBattle,
   IUserMoveReq,
 } from './interfaces';
-import { getBattleshipContract } from '../../shared/utils/getBattleshipContract';
+import { getBattleshipContract, getBattleshipContractWithProvider } from '../../shared/utils/getBattleshipContract';
 import fs from 'fs';
 import * as path from 'path';
 import { parseEther } from 'ethers/lib/utils';
@@ -32,6 +32,8 @@ import { emptyProof } from '../../shared/constants/emptyProof.const';
 import { checkIsHit } from '../../shared/utils/checkIsHit';
 import { TransactionEntity } from '../../../db/entities/transaction.entity';
 import { TransactionStatusEnum, TransactionTypeEnum } from '../../shared/enum/operation.enum';
+import { UserService } from '../user/user.service';
+import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
 import { UserService } from '../user/user.service';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -73,7 +75,8 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     private readonly userRepository: Repository<UserEntity>,
     @InjectRepository(TransactionEntity)
     private readonly transactionRepository: Repository<TransactionEntity>,
-    private userService: UserService,
+    private readonly wsJwtAuthGuard: WsJwtAuthGuard,
+    private readonly userService: UserService
   ) {
     this.provider = new ethers.providers.JsonRpcProvider(this.url);
   }
@@ -365,6 +368,76 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
 
     this.server.emit(`${SocketEvents.LeaveRoomServer}:${body.roomId}`);
   }
+
+  @SubscribeMessage(SocketEvents.GetGameState)
+public async handleGetGameState(client: Socket, body: { roomId: string; telegramUserId: number }): Promise<void> {
+  this.logger.log(`Getting game state for room: ${body.roomId}, user: ${body.telegramUserId}`);
+
+  const roomEntity = await this.roomRepository.findOne({
+    where: { roomId: body.roomId },
+    relations: { user: true },
+  });
+
+  if (!roomEntity) {
+    this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, { error: 'Room not found' });
+    return;
+  }
+
+  const userEntity = await this.userRepository.findOne({
+    where: { telegramUserId: body.telegramUserId.toString() },
+    relations: { wallets: true },
+  });
+
+  if (!userEntity) {
+    this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, { error: 'User not found' });
+    return;
+  }
+
+  try {
+    const contract = getBattleshipContractWithProvider(this.provider);
+    const gameState = await contract.game(roomEntity.contractRoomId);
+
+    const userAddress = userEntity.wallets[0].address;
+    const isUserPlayer1 = gameState.player1.toLowerCase() === userAddress.toLowerCase();
+
+    const userMoves = [];
+    const opponentMoves = [];
+
+    gameState.moves.forEach((move, index) => {
+      const moveData = {
+        x: move.x.toNumber(),
+        y: move.y.toNumber(),
+        isHit: move.isHit
+      };
+
+      if ((isUserPlayer1 && index % 2 === 0) || (!isUserPlayer1 && index % 2 !== 0)) {
+        userMoves.push(moveData);
+      } else {
+        opponentMoves.push(moveData);
+      }
+    });
+
+    const formattedGameState = {
+      player1: gameState.player1,
+      player2: gameState.player2,
+      player1Hash: gameState.player1Hash.toString(),
+      player2Hash: gameState.player2Hash.toString(),
+      winner: gameState.winner,
+      totalBetAmount: ethers.utils.formatEther(gameState.totalBetAmount),
+      nextMoveDeadline: gameState.nextMoveDeadline.toNumber(),
+      userMoves: userMoves,
+      opponentMoves: opponentMoves,
+      currentTurn: gameState.moves.length % 2 === 0 ? gameState.player1 : gameState.player2,
+      isUserTurn: (gameState.moves.length % 2 === 0 && isUserPlayer1) ||
+                  (gameState.moves.length % 2 !== 0 && !isUserPlayer1)
+    };
+
+    this.server.emit(`${SocketEvents.GetGameStateSuccess}:${body.roomId}`, formattedGameState);
+  } catch (error) {
+    this.logger.error(`Error getting game state: ${error.message}`);
+    this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, { error: 'Failed to get game state' });
+  }
+}
 
   public handleConnection(socket: Socket): void {
     this.logger.log(`Socket connected: ${socket.id}`);

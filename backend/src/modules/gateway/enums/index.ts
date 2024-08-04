@@ -10,4 +10,7 @@ export enum SocketEvents {
   Winner = 'winner',
   LeaveRoomClient = 'leaveRoomClient',
   LeaveRoomServer = 'leaveRoomServer',
+  GetGameState = 'getGameState',
+  GetGameStateSuccess = 'getGameStateSuccess',
+  GetGameStateError = 'getGameStateError',
 }
