@@ -20,7 +20,7 @@ import {
   IReadyForBattle,
   IUserMoveReq,
 } from './interfaces';
-import { getBattleshipContract } from '../../shared/utils/getBattleshipContract';
+import { getBattleshipContract, getBattleshipContractWithProvider } from '../../shared/utils/getBattleshipContract';
 import fs from 'fs';
 import * as path from 'path';
 import { parseEther } from 'ethers/lib/utils';
@@ -330,11 +330,28 @@ public async handleGetGameState(client: Socket, body: { roomId: string; telegram
   }
 
   try {
-    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
-    const signer = new ethers.Wallet(privateKey, this.provider);
-    const contract = getBattleshipContract(signer);
-
+    const contract = getBattleshipContractWithProvider(this.provider);
     const gameState = await contract.game(roomEntity.contractRoomId);
+
+    const userAddress = userEntity.wallets[0].address;
+    const isUserPlayer1 = gameState.player1.toLowerCase() === userAddress.toLowerCase();
+
+    const userMoves = [];
+    const opponentMoves = [];
+
+    gameState.moves.forEach((move, index) => {
+      const moveData = {
+        x: move.x.toNumber(),
+        y: move.y.toNumber(),
+        isHit: move.isHit
+      };
+
+      if ((isUserPlayer1 && index % 2 === 0) || (!isUserPlayer1 && index % 2 !== 0)) {
+        userMoves.push(moveData);
+      } else {
+        opponentMoves.push(moveData);
+      }
+    });
 
     const formattedGameState = {
       player1: gameState.player1,
@@ -344,14 +361,11 @@ public async handleGetGameState(client: Socket, body: { roomId: string; telegram
       winner: gameState.winner,
       totalBetAmount: ethers.utils.formatEther(gameState.totalBetAmount),
       nextMoveDeadline: gameState.nextMoveDeadline.toNumber(),
-      moves: gameState.moves.map(move => ({
-        x: move.x.toNumber(),
-        y: move.y.toNumber(),
-        isHit: move.isHit
-      })),
+      userMoves: userMoves,
+      opponentMoves: opponentMoves,
       currentTurn: gameState.moves.length % 2 === 0 ? gameState.player1 : gameState.player2,
-      isUserTurn: (gameState.moves.length % 2 === 0 && gameState.player1.toLowerCase() === signer.address.toLowerCase()) ||
-                  (gameState.moves.length % 2 !== 0 && gameState.player2.toLowerCase() === signer.address.toLowerCase())
+      isUserTurn: (gameState.moves.length % 2 === 0 && isUserPlayer1) ||
+                  (gameState.moves.length % 2 !== 0 && !isUserPlayer1)
     };
 
     this.server.emit(`${SocketEvents.GetGameStateSuccess}:${body.roomId}`, formattedGameState);
