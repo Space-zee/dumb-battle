@@ -9,6 +9,7 @@ import { RoomStatus } from './enums';
 import { formatEther } from 'ethers/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
+import { UserService } from '../user/user.service';
 
 @Injectable()
 export class ApiService {
@@ -21,6 +22,7 @@ export class ApiService {
     private readonly roomRepository: Repository<RoomEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
+    private readonly userService: UserService
   ) {
     this.provider = new ethers.providers.JsonRpcProvider(this.url);
   }
@@ -74,5 +76,44 @@ export class ApiService {
     } catch (e) {
       this.logger.error(`createGame error | ${e}`);
     }
+  }
+
+
+  public async withdrawFunds(
+    telegramUserId: string,
+    toAddress: string,
+    amount: string
+  ): Promise<{ txHash: string }> {
+    const user = await this.userRepository.findOne({
+      where: { telegramUserId },
+      relations: { wallets: true },
+    });
+
+    if (!this.userService) {
+      throw new Error('UserService is not initialized');
+    }
+
+    if (!user || !user.wallets.length) {
+      throw new Error('User or wallet not found');
+    }
+
+    const privateKey = this.userService.decrypt(user.wallets[0].privateKey);
+    const signer = new ethers.Wallet(privateKey, this.provider);
+    
+    const balance = await this.provider.getBalance(signer.address);
+    const withdrawAmount = ethers.utils.parseEther(amount);
+    
+    if (balance.lt(withdrawAmount)) {
+      throw new Error('Insufficient funds');
+    }
+
+    const tx = await signer.sendTransaction({
+      to: toAddress,
+      value: withdrawAmount
+    });
+
+    await tx.wait();
+    console.log('Withdrawal successful');
+    return { txHash: tx.hash };
   }
 }

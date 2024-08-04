@@ -92,4 +92,34 @@ export class ApiController {
       );
     }
   }
+
+  @Post('withdrawFunds')
+  public async withdrawFunds(
+    @Body() payload: { toAddress: string; amount: string },
+    @Req() request: Request,
+  ): Promise<{ txHash: string }> {
+    try {
+      this.logger.log('withdrawFunds call');
+
+      const jwtData = parseJwt(request.headers['authorization']);
+
+      return await this.apiService.withdrawFunds(
+        jwtData.telegramUserId.toString(),
+        payload.toAddress,
+        payload.amount
+      );
+    } catch (e) {
+      this.logger.error(`api withdrawFunds error | ${e}`);
+      const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
+      throw new HttpException(
+        {
+          status: status,
+          error: e?.response?.error
+            ? e.response.error
+            : 'There was a problem processing your request',
+        },
+        status,
+      );
+    }
+  }
 }
