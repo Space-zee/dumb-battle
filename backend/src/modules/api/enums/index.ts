@@ -1,7 +1,8 @@
 export enum RoomStatus {
   Active = 'active',
   Deleted = 'deleted',
-  Closed = 'closed',
+  WaitingGameCreation = 'waitingGameCreation',
+  WaitingGameJoin = 'waitingGameJoin',
   Game = 'game',
-  WaitingBets = 'waitingBets',
+  Closed = 'closed',
 }

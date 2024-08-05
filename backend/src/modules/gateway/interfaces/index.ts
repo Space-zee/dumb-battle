@@ -1,3 +1,5 @@
+import { RoomStatus } from '../../api/enums';
+
 export interface ICreateLobbyReq {
   bet: string;
 }
@@ -13,6 +15,8 @@ export interface IJoinRoomReq {
 }
 
 export interface IJoinRoomRes {
+  telegramUserId: number;
+  status: RoomStatus;
   gameId: number;
   isGameCreated: boolean;
   bet: string;

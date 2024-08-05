@@ -5,13 +5,14 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  Param,
   Post,
   Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiService } from './api.service';
-import { IGetActiveRoomsRes } from './interfaces';
+import { IGetActiveRoomsRes, ILoadGameData } from './interfaces';
 import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
 import { parseJwt } from '../../shared/utils/parseJwt';
 
@@ -22,11 +23,12 @@ export class ApiController {
   constructor(private readonly apiService: ApiService) {}
 
   @Get('getActiveGames')
-  public async getActiveGames(): Promise<IGetActiveRoomsRes[]> {
+  public async getActiveGames(@Req() request: Request): Promise<IGetActiveRoomsRes[]> {
+    const jwtData = parseJwt(request.headers['authorization']);
     try {
       this.logger.log('getActiveGames call');
 
-      return await this.apiService.getBattles();
+      return await this.apiService.getBattles(jwtData.telegramUserId.toString());
     } catch (e) {
       this.logger.error(`api getActiveGames error | ${e}`);
       const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
@@ -44,7 +46,6 @@ export class ApiController {
 
   @Get('getUserWallet')
   public async getUserWallet(
-    @Query() query: any,
     @Req() request: Request,
   ): Promise<{ wallet: string; balance: string }> {
     const jwtData = parseJwt(request.headers['authorization']);
@@ -54,6 +55,31 @@ export class ApiController {
       return await this.apiService.getWallet(jwtData.telegramUserId.toString());
     } catch (e) {
       this.logger.error(`api getUserWallet error | ${e}`);
+      const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
+      throw new HttpException(
+        {
+          status: status,
+          error: e?.response?.error
+            ? e.response.error
+            : 'There was a problem processing your request',
+        },
+        status,
+      );
+    }
+  }
+
+  @Get('getGameData/:roomId')
+  public async getGameData(
+    @Param() params: { roomId: string },
+    @Req() request: Request,
+  ): Promise<ILoadGameData> {
+    const jwtData = parseJwt(request.headers['authorization']);
+    try {
+      this.logger.log('getGameData call');
+
+      return await this.apiService.getGameData(jwtData.telegramUserId.toString(), params.roomId);
+    } catch (e) {
+      this.logger.error(`api getGameData error | ${e}`);
       const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
         {
