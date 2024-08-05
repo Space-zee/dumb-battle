@@ -26,7 +26,6 @@ export class UserService {
 
   private encrypt(text: string): string {
     const iv = crypto.randomBytes(16);
-    console.log('this.encryptionKey', this.encryptionKey);
     const cipher = crypto.createCipheriv(
       this.encryptionAlgorithm,
       Buffer.from(this.encryptionKey),
@@ -57,9 +56,8 @@ export class UserService {
     telegramUserId: string,
     firstName: string,
     username: string,
-    photo: string
+    photo: string,
   ): Promise<IResponse<{ wallet: WalletEntity }>> {
-    console.log(telegramUserId);
     this.logger.log(`createUser | ${telegramUserId}`);
     try {
       let userEntity = await this.userRepository.findOne({
@@ -76,12 +74,10 @@ export class UserService {
         });
         await userEntity.save();
       }
-      console.log('userEntityBefore', userEntity);
       const userEntityA = await this.userRepository.findOne({
         where: { telegramUserId },
         relations: { wallets: true },
       });
-      console.log('userEntityA', userEntityA);
 
       return {
         success: true,

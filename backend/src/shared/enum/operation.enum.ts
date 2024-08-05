@@ -9,4 +9,5 @@ export enum TransactionTypeEnum {
   CreateGame = 'createGame',
   JoinGame = 'joinGame',
   Move = 'move',
+  ClaimReward = 'claimReward',
 }

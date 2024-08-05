@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { UserEntity } from '../../../db/entities/user.entity';
 import { Repository } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
 import { ethers } from 'ethers';
 import { IGetActiveRoomsRes } from './interfaces';
 import { RoomEntity } from '../../../db/entities/room.entity';
@@ -9,7 +8,7 @@ import { RoomStatus } from './enums';
 import { formatEther } from 'ethers/lib/utils';
 import { v4 as uuidv4 } from 'uuid';
 import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
-import { TransactionEntity } from '../../../db/entities/transaction.entity';
+import { InjectRepository } from '@nestjs/typeorm';
 
 @Injectable()
 export class ApiService {

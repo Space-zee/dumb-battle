@@ -14,13 +14,17 @@ import { Server, Socket } from 'socket.io';
 import { RoomEntity } from '../../../db/entities/room.entity';
 import { RoomStatus } from '../api/enums';
 import {
+  ICoordinates,
   IJoinRoomReq,
   IJoinRoomRes,
   IRabbitsSetReq,
   IReadyForBattle,
   IUserMoveReq,
 } from './interfaces';
-import { getBattleshipContract, getBattleshipContractWithProvider } from '../../shared/utils/getBattleshipContract';
+import {
+  getBattleshipContract,
+  getBattleshipContractWithProvider,
+} from '../../shared/utils/getBattleshipContract';
 import fs from 'fs';
 import * as path from 'path';
 import { parseEther } from 'ethers/lib/utils';
@@ -34,7 +38,6 @@ import { TransactionEntity } from '../../../db/entities/transaction.entity';
 import { TransactionStatusEnum, TransactionTypeEnum } from '../../shared/enum/operation.enum';
 import { UserService } from '../user/user.service';
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
-import { UserService } from '../user/user.service';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const createWC = require('../../../assets/circom/board/board_js/witness_calculator.js');
@@ -76,7 +79,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     @InjectRepository(TransactionEntity)
     private readonly transactionRepository: Repository<TransactionEntity>,
     private readonly wsJwtAuthGuard: WsJwtAuthGuard,
-    private readonly userService: UserService
+    private readonly userService: UserService,
   ) {
     this.provider = new ethers.providers.JsonRpcProvider(this.url);
   }
@@ -197,7 +200,10 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
 
     if (!isRoomCreator) {
       const moveDeadline = Number(new Date()) + 60000;
-      this.server.emit(`${SocketEvents.GameStarted}:${body.roomId}`, { moveDeadline });
+      const moveDeadlineRes = Number(new Date()) + 61000;
+      this.server.emit(`${SocketEvents.GameStarted}:${body.roomId}`, {
+        moveDeadline: moveDeadlineRes,
+      });
       await this.roomRepository.update(
         { roomId: body.roomId },
         {
@@ -237,6 +243,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       );
       await move.wait();
       const moveDeadline = Number(new Date()) + 60000;
+      const moveDeadlineRes = Number(new Date()) + 61000;
 
       await this.createTxRecord(
         userEntity.id,
@@ -251,7 +258,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       );
 
       this.server.emit(`${SocketEvents.ServerUserMove}:${body.roomId}`, {
-        moveDeadline,
+        moveDeadline: moveDeadlineRes,
         lastMove: null,
         telegramUserId: body.telegramUserId,
       });
@@ -299,6 +306,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       await move.wait();
 
       const moveDeadline = Number(new Date()) + 60000;
+      const moveDeadlineRes = Number(new Date()) + 61000;
 
       await this.createTxRecord(
         userEntity.id,
@@ -337,7 +345,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       }
 
       this.server.emit(`${SocketEvents.ServerUserMove}:${body.roomId}`, {
-        moveDeadline,
+        moveDeadline: moveDeadlineRes,
         lastMove: {
           x: gameAfterTx.moves[gameAfterTx.moves.length - 2].x.toNumber(),
           y: gameAfterTx.moves[gameAfterTx.moves.length - 2].y.toNumber(),
@@ -369,75 +377,156 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     this.server.emit(`${SocketEvents.LeaveRoomServer}:${body.roomId}`);
   }
 
-  @SubscribeMessage(SocketEvents.GetGameState)
-public async handleGetGameState(client: Socket, body: { roomId: string; telegramUserId: number }): Promise<void> {
-  this.logger.log(`Getting game state for room: ${body.roomId}, user: ${body.telegramUserId}`);
+  @SubscribeMessage(SocketEvents.CheckDeadlineClient)
+  public async handleCheckDeadline(
+    client: Socket,
+    body: { telegramUserId: number; roomId: string },
+  ): Promise<void> {
+    this.logger.log(`Check deadline room: ${body.roomId}, user: ${body.telegramUserId}`);
 
-  const roomEntity = await this.roomRepository.findOne({
-    where: { roomId: body.roomId },
-    relations: { user: true },
-  });
-
-  if (!roomEntity) {
-    this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, { error: 'Room not found' });
-    return;
-  }
-
-  const userEntity = await this.userRepository.findOne({
-    where: { telegramUserId: body.telegramUserId.toString() },
-    relations: { wallets: true },
-  });
-
-  if (!userEntity) {
-    this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, { error: 'User not found' });
-    return;
-  }
-
-  try {
-    const contract = getBattleshipContractWithProvider(this.provider);
-    const gameState = await contract.game(roomEntity.contractRoomId);
-
-    const userAddress = userEntity.wallets[0].address;
-    const isUserPlayer1 = gameState.player1.toLowerCase() === userAddress.toLowerCase();
-
-    const userMoves = [];
-    const opponentMoves = [];
-
-    gameState.moves.forEach((move, index) => {
-      const moveData = {
-        x: move.x.toNumber(),
-        y: move.y.toNumber(),
-        isHit: move.isHit
-      };
-
-      if ((isUserPlayer1 && index % 2 === 0) || (!isUserPlayer1 && index % 2 !== 0)) {
-        userMoves.push(moveData);
-      } else {
-        opponentMoves.push(moveData);
-      }
+    const roomEntity = await this.roomRepository.findOne({
+      where: { roomId: body.roomId },
+      relations: { gameCreatorUser: true },
     });
 
-    const formattedGameState = {
-      player1: gameState.player1,
-      player2: gameState.player2,
-      player1Hash: gameState.player1Hash.toString(),
-      player2Hash: gameState.player2Hash.toString(),
-      winner: gameState.winner,
-      totalBetAmount: ethers.utils.formatEther(gameState.totalBetAmount),
-      nextMoveDeadline: gameState.nextMoveDeadline.toNumber(),
-      userMoves: userMoves,
-      opponentMoves: opponentMoves,
-      currentTurn: gameState.moves.length % 2 === 0 ? gameState.player1 : gameState.player2,
-      isUserTurn: (gameState.moves.length % 2 === 0 && isUserPlayer1) ||
-                  (gameState.moves.length % 2 !== 0 && !isUserPlayer1)
-    };
-
-    this.server.emit(`${SocketEvents.GetGameStateSuccess}:${body.roomId}`, formattedGameState);
-  } catch (error) {
-    this.logger.error(`Error getting game state: ${error.message}`);
-    this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, { error: 'Failed to get game state' });
+    if (Number(roomEntity.moveDeadline) < Number(Date.now())) {
+      this.server.emit(`${SocketEvents.CheckDeadlineServer}:${body.roomId}`);
+    }
   }
-}
+
+  @SubscribeMessage(SocketEvents.ConfirmWin)
+  public async handleConfirmWinner(
+    client: Socket,
+    body: { telegramUserId: number; roomId: string },
+  ): Promise<void> {
+    const roomEntity = await this.roomRepository.findOne({
+      where: { roomId: body.roomId },
+      relations: ['gameCreatorUser', 'gameCreatorUser.wallets', 'joinUser', 'joinUser.wallets'],
+    });
+    const userEntity =
+      body.telegramUserId.toString() === roomEntity.gameCreatorUser.telegramUserId
+        ? roomEntity.gameCreatorUser
+        : roomEntity.joinUser;
+    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
+    const signer = new ethers.Wallet(privateKey, this.provider);
+    const contract = getBattleshipContract(signer);
+    const claimReward = await contract.claimReward(roomEntity.contractRoomId);
+    await claimReward.wait();
+
+    await this.createTxRecord(
+      userEntity.id,
+      roomEntity.id,
+      TransactionStatusEnum.Success,
+      TransactionTypeEnum.ClaimReward,
+      claimReward.hash,
+    );
+
+    const gameAfterTx = await contract.game(roomEntity.contractRoomId);
+
+    if (gameAfterTx.winner !== ethers.constants.AddressZero) {
+      console.log('winner');
+      await this.roomRepository.update(
+        { roomId: roomEntity.roomId },
+        { status: RoomStatus.Closed },
+      );
+      const winner =
+        gameAfterTx.winner === roomEntity.gameCreatorUser.wallets[0].address
+          ? roomEntity.gameCreatorUser
+          : roomEntity.joinUser;
+      const loser =
+        gameAfterTx.winner !== roomEntity.gameCreatorUser.wallets[0].address
+          ? roomEntity.gameCreatorUser
+          : roomEntity.joinUser;
+
+      await this.userRepository.update({ id: winner.id }, { win: winner.win + 1 });
+      await this.userRepository.update({ id: loser.id }, { lose: loser.lose + 1 });
+      this.server.emit(`${SocketEvents.Winner}:${body.roomId}`, { address: gameAfterTx.winner });
+
+      return;
+    }
+  }
+
+  @SubscribeMessage(SocketEvents.GetGameState)
+  public async handleGetGameState(
+    client: Socket,
+    body: { roomId: string; telegramUserId: number },
+  ): Promise<void> {
+    this.logger.log(`Getting game state for room: ${body.roomId}, user: ${body.telegramUserId}`);
+
+    const roomEntity = await this.roomRepository.findOne({
+      where: { roomId: body.roomId },
+      relations: { gameCreatorUser: true },
+    });
+
+    if (!roomEntity) {
+      this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, {
+        error: 'Room not found',
+      });
+
+      return;
+    }
+
+    const userEntity = await this.userRepository.findOne({
+      where: { telegramUserId: body.telegramUserId.toString() },
+      relations: { wallets: true },
+    });
+
+    if (!userEntity) {
+      this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, {
+        error: 'User not found',
+      });
+
+      return;
+    }
+
+    try {
+      const contract = getBattleshipContractWithProvider(this.provider);
+      const gameState = await contract.game(roomEntity.contractRoomId);
+
+      const userAddress = userEntity.wallets[0].address;
+      const isUserPlayer1 = gameState.player1.toLowerCase() === userAddress.toLowerCase();
+
+      const userMoves = [];
+      const opponentMoves = [];
+
+      gameState.moves.forEach((move, index) => {
+        const moveData = {
+          x: move.x.toNumber(),
+          y: move.y.toNumber(),
+          isHit: move.isHit,
+        };
+
+        if ((isUserPlayer1 && index % 2 === 0) || (!isUserPlayer1 && index % 2 !== 0)) {
+          userMoves.push(moveData);
+        } else {
+          opponentMoves.push(moveData);
+        }
+      });
+
+      const formattedGameState = {
+        player1: gameState.player1,
+        player2: gameState.player2,
+        player1Hash: gameState.player1Hash.toString(),
+        player2Hash: gameState.player2Hash.toString(),
+        winner: gameState.winner,
+        totalBetAmount: ethers.utils.formatEther(gameState.totalBetAmount),
+        nextMoveDeadline: gameState.nextMoveDeadline.toNumber(),
+        userMoves: userMoves,
+        opponentMoves: opponentMoves,
+        currentTurn: gameState.moves.length % 2 === 0 ? gameState.player1 : gameState.player2,
+        isUserTurn:
+          (gameState.moves.length % 2 === 0 && isUserPlayer1) ||
+          (gameState.moves.length % 2 !== 0 && !isUserPlayer1),
+      };
+
+      this.server.emit(`${SocketEvents.GetGameStateSuccess}:${body.roomId}`, formattedGameState);
+    } catch (error) {
+      this.logger.error(`Error getting game state: ${error.message}`);
+      this.server.emit(`${SocketEvents.GetGameStateError}:${body.roomId}`, {
+        error: 'Failed to get game state',
+      });
+    }
+  }
 
   public handleConnection(socket: Socket): void {
     this.logger.log(`Socket connected: ${socket.id}`);
