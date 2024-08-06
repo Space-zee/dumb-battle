@@ -20,7 +20,10 @@ import {
   IReadyForBattle,
   IUserMoveReq,
 } from './interfaces';
-import { getBattleshipContract } from '../../shared/utils/getBattleshipContract';
+import {
+  getBattleshipContract,
+  getBattleshipContractWithProvider,
+} from '../../shared/utils/getBattleshipContract';
 import fs from 'fs';
 import * as path from 'path';
 import { parseEther } from 'ethers/lib/utils';
@@ -30,20 +33,16 @@ import * as snarkJS from 'snarkjs';
 import bigInt from 'big-integer';
 import { emptyProof } from '../../shared/constants/emptyProof.const';
 import { checkIsHit } from '../../shared/utils/checkIsHit';
+import { TransactionEntity } from '../../../db/entities/transaction.entity';
+import { TransactionStatusEnum, TransactionTypeEnum } from '../../shared/enum/operation.enum';
+import { UserService } from '../user/user.service';
 import { WsJwtAuthGuard } from '../auth/ws-jwt-auth.guard';
+import { ProviderService } from '../provider/provider.service';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const createWC = require('../../../assets/circom/board/board_js/witness_calculator.js');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const moveWC = require('../../../assets/circom/move/move_js/witness_calculator.js');
-
-// const createWasm = path.resolve(__dirname, '../../../assets/circom/board/board_js/board.wasm');
-// const createZkey = path.resolve(__dirname, '../../../assets/circom/board/board_0001.zkey');
-// const moveWasm = path.resolve(__dirname, '../../../assets/circom/move/move_js/move.wasm');
-// const moveZkey = path.resolve(__dirname, '../../../assets/circom/move/move_0001.zkey');
-//const snarkjs = require('snarkjs');
-//const bigInt = require('big-integer');
-//const WITNESS_FILE = '/tmp/witness';
 
 @Injectable()
 @WebSocketGateway({ cors: { origin: '*' } })
@@ -67,8 +66,6 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
   private readonly moveZkey = path.resolve(__dirname, '../../../assets/circom/move/move_0001.zkey');
 
   private readonly logger = new Logger(GatewayService.name);
-  private readonly url = `https://scroll-sepolia.blockpi.network/v1/rpc/64e6310d6e6234d8d05d9afcdc60a5ddab5a05a9`;
-  private provider: ethers.providers.JsonRpcProvider;
   @WebSocketServer()
   private server: Server;
 
@@ -77,10 +74,12 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     private readonly roomRepository: Repository<RoomEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
+    @InjectRepository(TransactionEntity)
+    private readonly transactionRepository: Repository<TransactionEntity>,
     private readonly wsJwtAuthGuard: WsJwtAuthGuard,
-  ) {
-    this.provider = new ethers.providers.JsonRpcProvider(this.url);
-  }
+    private readonly userService: UserService,
+    private readonly providerService: ProviderService,
+  ) {}
 
   @SubscribeMessage(SocketEvents.JoinRoomClient)
   public async handleJoinRoom(client: Socket, body: IJoinRoomReq): Promise<void> {
@@ -88,7 +87,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
 
     const roomEntity = await this.roomRepository.findOne({
       where: { roomId: body.roomId },
-      relations: { user: true },
+      relations: { gameCreatorUser: true },
     });
 
     client.join(roomEntity.roomId);
@@ -100,29 +99,35 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     const room = this.server.sockets.adapter.rooms.get(roomEntity.roomId);
     const numOfPlayers = room ? room.size : 0;
 
-    if (numOfPlayers === 2) {
+    if (
+      numOfPlayers === 2 &&
+      (roomEntity.status === RoomStatus.Active || roomEntity.status === RoomStatus.WaitingGameJoin)
+    ) {
       const data: IReadyForBattle = {
         gameId: roomEntity.id,
         isGameCreated: !!roomEntity.contractRoomId,
         bet: roomEntity.bet,
         roomId: roomEntity.roomId,
-        creatorName: roomEntity.user.username,
+        creatorName: roomEntity.gameCreatorUser.username,
         opponentName: user.username,
-        roomCreatorId: Number(roomEntity.user.telegramUserId),
+        roomCreatorId: Number(roomEntity.gameCreatorUser.telegramUserId),
       };
-      if (roomEntity.status === RoomStatus.Active) {
-        await this.roomRepository.update(roomEntity.id, { status: RoomStatus.WaitingBets });
-        this.server.emit(`${SocketEvents.ReadyForBattle}:${roomEntity.roomId}`, data);
-      }
+      await this.roomRepository.update(roomEntity.id, { status: RoomStatus.WaitingGameCreation });
+      this.server.emit(`${SocketEvents.ReadyForBattle}:${roomEntity.roomId}`, data);
     } else {
       const data: IJoinRoomRes = {
+        telegramUserId: Number(user.telegramUserId),
+        status: roomEntity.status as RoomStatus,
         gameId: roomEntity.id,
         isGameCreated: !!roomEntity.contractRoomId,
         bet: roomEntity.bet,
         roomId: roomEntity.roomId,
-        creatorName: roomEntity.user.username,
-        opponentName: user.id !== roomEntity.user.id ? roomEntity.user.username : undefined,
-        roomCreatorId: Number(roomEntity.user.telegramUserId),
+        creatorName: roomEntity.gameCreatorUser.username,
+        opponentName:
+          user.id !== roomEntity.gameCreatorUser.id
+            ? roomEntity.gameCreatorUser.username
+            : undefined,
+        roomCreatorId: Number(roomEntity.gameCreatorUser.telegramUserId),
       };
       this.server.emit(`${SocketEvents.JoinRoomServer}:${roomEntity.roomId}`, data);
     }
@@ -133,12 +138,13 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     this.logger.log(`${body.telegramUserId} rabbit set room: ${body.roomId}`);
     const roomEntity = await this.roomRepository.findOne({
       where: { roomId: body.roomId },
+      relations: { gameCreatorUser: true },
     });
     const userEntity = await this.userRepository.findOne({
       where: { telegramUserId: body.telegramUserId.toString() },
       relations: { wallets: true },
     });
-    const isRoomCreator = roomEntity.userId === userEntity.id;
+    const isRoomCreator = roomEntity.gameCreatorUserId === userEntity.id;
     const rabbit1 = body.rabbits[0];
     const rabbit2 = body.rabbits[1];
     const playerCreate = {
@@ -150,7 +156,8 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     };
     const proof = await this.genCreateProof(playerCreate);
 
-    const signer = new ethers.Wallet(userEntity.wallets[0].privateKey, this.provider);
+    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
+    const signer = new ethers.Wallet(privateKey, this.providerService.provider);
     const contract = getBattleshipContract(signer);
     const contractInterface = new ethers.utils.Interface(abi);
 
@@ -163,9 +170,23 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
           value: parseEther(roomEntity.bet),
         },
       );
+      const txEntity = await this.createTxRecord(
+        userEntity.id,
+        roomEntity.id,
+        TransactionStatusEnum.Pending,
+        TransactionTypeEnum.CreateGame,
+        createGame.hash,
+      );
       const receipt = await createGame.wait();
+      await this.transactionRepository.update(
+        { id: txEntity.id },
+        { status: TransactionStatusEnum.Success },
+      );
       const contractRoomId = contractInterface.parseLog(receipt.events[1]).args[0].toString();
-      await this.roomRepository.update(roomEntity.id, { contractRoomId: Number(contractRoomId) });
+      await this.roomRepository.update(roomEntity.id, {
+        status: RoomStatus.WaitingGameJoin,
+        contractRoomId: Number(contractRoomId),
+      });
     } else {
       const joinGame = await contract.joinGame(
         roomEntity.contractRoomId,
@@ -175,12 +196,36 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
           value: parseEther(roomEntity.bet),
         },
       );
+      const txEntity = await this.createTxRecord(
+        userEntity.id,
+        roomEntity.id,
+        TransactionStatusEnum.Pending,
+        TransactionTypeEnum.JoinGame,
+        joinGame.hash,
+      );
       await joinGame.wait();
+      await this.transactionRepository.update(
+        { id: txEntity.id },
+        { status: TransactionStatusEnum.Success },
+      );
     }
 
     if (!isRoomCreator) {
-      this.server.emit(`${SocketEvents.GameStarted}:${body.roomId}`);
-      await this.roomRepository.update({ roomId: body.roomId }, { status: RoomStatus.Game });
+      const moveDeadline = Number(new Date()) + 60000;
+      const moveDeadlineRes = Number(new Date()) + 61000;
+      this.server.emit(`${SocketEvents.GameStarted}:${body.roomId}`, {
+        moveDeadline: moveDeadlineRes,
+        opponentName: userEntity.username,
+        creatorName: roomEntity.gameCreatorUser.username,
+      });
+      await this.roomRepository.update(
+        { roomId: body.roomId },
+        {
+          status: RoomStatus.Game,
+          moveDeadline: moveDeadline.toString(),
+          joinUserId: userEntity.id,
+        },
+      );
     } else {
       this.server.emit(`${SocketEvents.GameCreated}:${body.roomId}`);
     }
@@ -189,15 +234,16 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
   @SubscribeMessage(SocketEvents.ClientUserMove)
   public async handleUserMove(client: Socket, body: IUserMoveReq): Promise<void> {
     this.logger.log(`${body.telegramUserId} move room: ${body.roomId}`);
-    const userEntity = await this.userRepository.findOne({
-      where: { telegramUserId: body.telegramUserId.toString() },
-      relations: { wallets: true },
-    });
     const roomEntity = await this.roomRepository.findOne({
       where: { roomId: body.roomId },
-      relations: { user: true },
+      relations: ['gameCreatorUser', 'gameCreatorUser.wallets', 'joinUser', 'joinUser.wallets'],
     });
-    const signer = new ethers.Wallet(userEntity.wallets[0].privateKey, this.provider);
+    const userEntity =
+      body.telegramUserId.toString() === roomEntity.gameCreatorUser.telegramUserId
+        ? roomEntity.gameCreatorUser
+        : roomEntity.joinUser;
+    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
+    const signer = new ethers.Wallet(privateKey, this.providerService.provider);
     const contract = getBattleshipContract(signer);
     const game = await contract.game(roomEntity.contractRoomId);
 
@@ -209,15 +255,35 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
         emptyProof,
         false,
       );
+      const txEntity = await this.createTxRecord(
+        userEntity.id,
+        roomEntity.id,
+        TransactionStatusEnum.Pending,
+        TransactionTypeEnum.Move,
+        move.hash,
+      );
       await move.wait();
+      const moveDeadline = Number(new Date()) + 60000;
+      const moveDeadlineRes = Number(new Date()) + 61000;
+
+      await this.transactionRepository.update(
+        { id: txEntity.id },
+        { status: TransactionStatusEnum.Success },
+      );
+
+      await this.roomRepository.update(
+        { roomId: body.roomId },
+        { status: RoomStatus.Game, moveDeadline: moveDeadline.toString() },
+      );
 
       this.server.emit(`${SocketEvents.ServerUserMove}:${body.roomId}`, {
+        moveDeadline: moveDeadlineRes,
         lastMove: null,
         telegramUserId: body.telegramUserId,
       });
     } else {
       const boardHash =
-        Number(roomEntity.user.telegramUserId) === body.telegramUserId
+        Number(roomEntity.gameCreatorUser.telegramUserId) === body.telegramUserId
           ? game.player1Hash.toString()
           : game.player2Hash.toString();
 
@@ -256,19 +322,52 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
           gasLimit: BigNumber.from('600000'),
         },
       );
+      const txEntity = await this.createTxRecord(
+        userEntity.id,
+        roomEntity.id,
+        TransactionStatusEnum.Pending,
+        TransactionTypeEnum.Move,
+        move.hash,
+      );
       await move.wait();
+
+      const moveDeadline = Number(new Date()) + 60000;
+      const moveDeadlineRes = Number(new Date()) + 61000;
+
+      await this.transactionRepository.update(
+        { id: txEntity.id },
+        { status: TransactionStatusEnum.Success },
+      );
+      await this.roomRepository.update(
+        { roomId: body.roomId },
+        { status: RoomStatus.Game, moveDeadline: moveDeadline.toString() },
+      );
+
       const gameAfterTx = await contract.game(roomEntity.contractRoomId);
+
       if (gameAfterTx.winner !== ethers.constants.AddressZero) {
-        console.log('winner');
-        this.server.emit(`${SocketEvents.Winner}:${body.roomId}`, { address: game.winner });
         await this.roomRepository.update(
           { roomId: roomEntity.roomId },
           { status: RoomStatus.Closed },
         );
+        const winner =
+          gameAfterTx.winner === roomEntity.gameCreatorUser.wallets[0].address
+            ? roomEntity.gameCreatorUser
+            : roomEntity.joinUser;
+        const loser =
+          gameAfterTx.winner !== roomEntity.gameCreatorUser.wallets[0].address
+            ? roomEntity.gameCreatorUser
+            : roomEntity.joinUser;
+
+        await this.userRepository.update({ id: winner.id }, { win: winner.win + 1 });
+        await this.userRepository.update({ id: loser.id }, { lose: loser.lose + 1 });
+        this.server.emit(`${SocketEvents.Winner}:${body.roomId}`, { address: gameAfterTx.winner });
 
         return;
       }
+
       this.server.emit(`${SocketEvents.ServerUserMove}:${body.roomId}`, {
+        moveDeadline: moveDeadlineRes,
         lastMove: {
           x: gameAfterTx.moves[gameAfterTx.moves.length - 2].x.toNumber(),
           y: gameAfterTx.moves[gameAfterTx.moves.length - 2].y.toNumber(),
@@ -290,8 +389,7 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       where: { roomId: body.roomId },
     });
 
-    console.log('roomEntity', roomEntity);
-    if (roomEntity.status === RoomStatus.WaitingBets) {
+    if (roomEntity.status === RoomStatus.WaitingGameCreation) {
       await this.roomRepository.update(
         { roomId: roomEntity.roomId },
         { status: RoomStatus.Active },
@@ -299,6 +397,80 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
     }
 
     this.server.emit(`${SocketEvents.LeaveRoomServer}:${body.roomId}`);
+  }
+
+  @SubscribeMessage(SocketEvents.CheckDeadlineClient)
+  public async handleCheckDeadline(
+    client: Socket,
+    body: { telegramUserId: number; roomId: string },
+  ): Promise<void> {
+    this.logger.log(`Check deadline room: ${body.roomId}, user: ${body.telegramUserId}`);
+
+    const roomEntity = await this.roomRepository.findOne({
+      where: { roomId: body.roomId },
+      relations: { gameCreatorUser: true },
+    });
+
+    if (Number(roomEntity.moveDeadline) < Number(Date.now())) {
+      this.server.emit(`${SocketEvents.CheckDeadlineServer}:${body.roomId}`);
+    }
+  }
+
+  @SubscribeMessage(SocketEvents.ConfirmWin)
+  public async handleConfirmWinner(
+    client: Socket,
+    body: { telegramUserId: number; roomId: string },
+  ): Promise<void> {
+    const roomEntity = await this.roomRepository.findOne({
+      where: { roomId: body.roomId },
+      relations: ['gameCreatorUser', 'gameCreatorUser.wallets', 'joinUser', 'joinUser.wallets'],
+    });
+    const userEntity =
+      body.telegramUserId.toString() === roomEntity.gameCreatorUser.telegramUserId
+        ? roomEntity.gameCreatorUser
+        : roomEntity.joinUser;
+    const privateKey = this.userService.decrypt(userEntity.wallets[0].privateKey);
+    const signer = new ethers.Wallet(privateKey, this.providerService.provider);
+    const contract = getBattleshipContract(signer);
+    const claimReward = await contract.claimReward(roomEntity.contractRoomId);
+    const txEntity = await this.createTxRecord(
+      userEntity.id,
+      roomEntity.id,
+      TransactionStatusEnum.Pending,
+      TransactionTypeEnum.ClaimReward,
+      claimReward.hash,
+    );
+    await claimReward.wait();
+
+    await this.transactionRepository.update(
+      { id: txEntity.id },
+      { status: TransactionStatusEnum.Success },
+    );
+
+    const gameAfterTx = await contract.game(roomEntity.contractRoomId, {
+      gasLimit: BigNumber.from('400000'),
+    });
+
+    if (gameAfterTx.winner !== ethers.constants.AddressZero) {
+      await this.roomRepository.update(
+        { roomId: roomEntity.roomId },
+        { status: RoomStatus.Closed },
+      );
+      const winner =
+        gameAfterTx.winner === roomEntity.gameCreatorUser.wallets[0].address
+          ? roomEntity.gameCreatorUser
+          : roomEntity.joinUser;
+      const loser =
+        gameAfterTx.winner !== roomEntity.gameCreatorUser.wallets[0].address
+          ? roomEntity.gameCreatorUser
+          : roomEntity.joinUser;
+
+      await this.userRepository.update({ id: winner.id }, { win: winner.win + 1 });
+      await this.userRepository.update({ id: loser.id }, { lose: loser.lose + 1 });
+      this.server.emit(`${SocketEvents.Winner}:${body.roomId}`, { address: gameAfterTx.winner });
+
+      return;
+    }
   }
 
   public handleConnection(socket: Socket): void {
@@ -367,5 +539,24 @@ export class GatewayService implements OnGatewayConnection, OnGatewayDisconnect 
       solidityProof: solidityProof,
       inputs: publicSignals,
     };
+  }
+
+  private async createTxRecord(
+    userId: number,
+    roomId: number,
+    status: TransactionStatusEnum,
+    type: TransactionTypeEnum,
+    hash: string,
+  ): Promise<TransactionEntity> {
+    const txEntity = this.transactionRepository.create({
+      userId,
+      roomId,
+      status,
+      type,
+      hash,
+    });
+    await txEntity.save();
+
+    return txEntity;
   }
 }

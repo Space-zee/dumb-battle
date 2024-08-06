@@ -22,6 +22,12 @@ export class UserEntity extends BaseEntity {
   @Column({ name: 'nonce', nullable: false })
   public nonce: number;
 
+  @Column({ name: 'win', nullable: false, default: 0 })
+  public win: number;
+
+  @Column({ name: 'lose', nullable: false, default: 0 })
+  public lose: number;
+
   @Column({
     name: 'createdAt',
     type: 'timestamp',
@@ -35,7 +41,7 @@ export class UserEntity extends BaseEntity {
   @JoinColumn({ name: 'userId' })
   wallets: WalletEntity[];
 
-  @OneToMany(() => RoomEntity, (room) => room.user)
+  @OneToMany(() => RoomEntity, (room) => room.gameCreatorUserId)
   @JoinColumn({ name: 'userId' })
   rooms: RoomEntity[];
 }

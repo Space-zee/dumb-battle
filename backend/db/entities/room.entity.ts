@@ -6,8 +6,11 @@ export class RoomEntity extends BaseEntity {
   @PrimaryGeneratedColumn({ name: 'id' })
   public id: number;
 
-  @Column({ name: 'userId', nullable: false })
-  public userId: number;
+  @Column({ name: 'gameCreatorUserId', nullable: false })
+  public gameCreatorUserId: number;
+
+  @Column({ name: 'joinUserId', nullable: true })
+  public joinUserId: number;
 
   @Column({ name: 'roomId', length: 255, nullable: false })
   public roomId: string;
@@ -21,6 +24,9 @@ export class RoomEntity extends BaseEntity {
   @Column({ name: 'bet', length: 255, nullable: false })
   public bet: string;
 
+  @Column({ name: 'moveDeadline', nullable: true, type: 'bigint' })
+  public moveDeadline: string;
+
   @Column({
     name: 'createdAt',
     type: 'timestamp',
@@ -30,6 +36,9 @@ export class RoomEntity extends BaseEntity {
   })
   public createdAt: Date;
 
-  @ManyToOne(() => UserEntity, (user) => user.rooms)
-  user: UserEntity;
+  @ManyToOne(() => UserEntity, (user) => user.id)
+  gameCreatorUser: UserEntity;
+
+  @ManyToOne(() => UserEntity, (user) => user.id)
+  joinUser: UserEntity;
 }

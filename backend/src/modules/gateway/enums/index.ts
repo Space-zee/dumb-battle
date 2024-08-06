@@ -7,7 +7,13 @@ export enum SocketEvents {
   GameStarted = 'gameStarted',
   ClientUserMove = 'clientUserMove',
   ServerUserMove = 'serverUserMove',
+  CheckDeadlineClient = 'checkDeadlineClient',
+  CheckDeadlineServer = 'checkDeadlineServer',
+  ConfirmWin = 'confirmWin',
   Winner = 'winner',
   LeaveRoomClient = 'leaveRoomClient',
   LeaveRoomServer = 'leaveRoomServer',
+  GetGameState = 'getGameState',
+  GetGameStateSuccess = 'getGameStateSuccess',
+  GetGameStateError = 'getGameStateError',
 }

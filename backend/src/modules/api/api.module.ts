@@ -4,9 +4,10 @@ import { ApiController } from './api.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RoomEntity } from '../../../db/entities/room.entity';
 import { UserEntity } from '../../../db/entities/user.entity';
+import { ProviderModule } from '../provider/provider.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([RoomEntity, UserEntity])],
+  imports: [TypeOrmModule.forFeature([RoomEntity, UserEntity]), ProviderModule],
   providers: [ApiService],
   controllers: [ApiController],
 })
