@@ -1,8 +1,19 @@
+import { RoomStatus } from '../enums';
+
 export interface IGetActiveRoomsRes {
-  username: string;
+  status: RoomStatus;
   bet: string;
   roomId: string;
-  creatorId: number;
+  creator: {
+    username?: string;
+    photo?: string;
+    telegramUserId: number;
+  };
+  joiner?: {
+    username?: string;
+    photo?: string;
+    telegramUserId: number;
+  };
 }
 
 interface ICoordinatesWithHit {
@@ -21,4 +32,13 @@ export interface ILoadGameData {
   moveDeadline: number;
   opponentName: string;
   opponentSteps: ICoordinatesWithHit[];
+}
+
+export interface IGameResultStep {
+  x: number;
+  y: number;
+  isHit: boolean;
+  hash: string;
+  telegramUserId: number;
+  username: string;
 }

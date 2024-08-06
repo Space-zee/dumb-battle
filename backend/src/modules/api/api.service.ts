@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { UserEntity } from '../../../db/entities/user.entity';
 import { Repository } from 'typeorm';
-import { IGetActiveRoomsRes, ILoadGameData } from './interfaces';
+import { IGameResultStep, IGetActiveRoomsRes, ILoadGameData } from './interfaces';
 import { RoomEntity } from '../../../db/entities/room.entity';
 import { RoomStatus } from './enums';
 import { formatEther } from 'ethers/lib/utils';
@@ -10,6 +10,8 @@ import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ProviderService } from '../provider/provider.service';
 import { getBattleshipContractWithProvider } from '../../shared/utils/getBattleshipContract';
+import { TransactionEntity } from '../../../db/entities/transaction.entity';
+import { TransactionTypeEnum } from '../../shared/enum/operation.enum';
 
 @Injectable()
 export class ApiService {
@@ -20,6 +22,8 @@ export class ApiService {
     private readonly roomRepository: Repository<RoomEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
+    @InjectRepository(TransactionEntity)
+    private readonly transactionRepository: Repository<TransactionEntity>,
     private readonly providerService: ProviderService,
   ) {}
 
@@ -36,7 +40,7 @@ export class ApiService {
       .getMany();
 
     const myRooms = await this.roomRepository.find({
-      relations: ['gameCreatorUser'],
+      relations: ['gameCreatorUser', 'joinUser'],
       where: [
         { status: RoomStatus.Game, gameCreatorUserId: user.id },
         { status: RoomStatus.Game, joinUserId: user.id },
@@ -50,10 +54,19 @@ export class ApiService {
 
     return rooms.map((el) => {
       return {
+        status: el.status as RoomStatus,
         bet: el.bet,
         roomId: el.roomId,
-        creatorId: Number(el.gameCreatorUser.telegramUserId),
-        username: el.gameCreatorUser.username ? el.gameCreatorUser.username : 'Rand',
+        creator: {
+          username: el.gameCreatorUser.username ? el.gameCreatorUser.username : 'A',
+          photo: el.gameCreatorUser.photo,
+          telegramUserId: Number(el.gameCreatorUser.telegramUserId),
+        },
+        joiner: {
+          username: el?.joinUser?.username ? el?.joinUser?.username : 'A',
+          photo: el?.joinUser?.photo,
+          telegramUserId: Number(el?.joinUser?.telegramUserId),
+        },
       };
     });
   }
@@ -121,6 +134,44 @@ export class ApiService {
     };
   }
 
+  public async getGameResult(
+    roomId: string,
+  ): Promise<{ steps: IGameResultStep[]; winnerAddress: string }> {
+    const roomEntity = await this.roomRepository.findOne({
+      where: { roomId },
+      relations: { gameCreatorUser: true, joinUser: true },
+    });
+
+    const txs = (
+      await this.transactionRepository.find({
+        where: { roomId: roomEntity.id },
+        relations: { user: true },
+      })
+    ).filter(
+      (el) => el.type === TransactionTypeEnum.Move || el.type === TransactionTypeEnum.ClaimReward,
+    );
+
+    const contract = getBattleshipContractWithProvider(this.providerService.provider);
+    const gameState = await contract.game(roomEntity.contractRoomId);
+
+    const steps = [];
+
+    for (let i = 0; i < gameState.moves.length; i++) {
+      const move = gameState.moves[i];
+      const moveData: IGameResultStep = {
+        x: move.x.toNumber(),
+        y: move.y.toNumber(),
+        isHit: move.isHit,
+        hash: txs[i].hash,
+        telegramUserId: Number(txs[i].user.telegramUserId),
+        username: txs[i].user.username,
+      };
+      steps.push(moveData);
+    }
+
+    return { steps, winnerAddress: gameState.winner };
+  }
+
   public async createGame(telegramUserId: string, data: ICreateLobbyReq): Promise<ICreateLobbyRes> {
     try {
       const user = await this.userRepository.findOne({
@@ -140,6 +191,17 @@ export class ApiService {
       };
     } catch (e) {
       this.logger.error(`createGame error | ${e}`);
+    }
+  }
+
+  public async deleteGame(roomId: string): Promise<void> {
+    try {
+      const roomEntity = await this.roomRepository.findOne({ where: { roomId } });
+      if (roomEntity.status === RoomStatus.Active) {
+        await this.roomRepository.update({ roomId }, { status: RoomStatus.Deleted });
+      }
+    } catch (e) {
+      this.logger.error(`deleteGame error | ${e}`);
     }
   }
 }

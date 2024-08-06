@@ -12,7 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiService } from './api.service';
-import { IGetActiveRoomsRes, ILoadGameData } from './interfaces';
+import { IGameResultStep, IGetActiveRoomsRes, ILoadGameData } from './interfaces';
 import { ICreateLobbyReq, ICreateLobbyRes } from '../gateway/interfaces';
 import { parseJwt } from '../../shared/utils/parseJwt';
 
@@ -93,6 +93,29 @@ export class ApiController {
     }
   }
 
+  @Get('getGameResult/:roomId')
+  public async getGameResult(
+    @Param() params: { roomId: string },
+  ): Promise<{ steps: IGameResultStep[] }> {
+    try {
+      this.logger.log('getGameResults call');
+
+      return await this.apiService.getGameResult(params.roomId);
+    } catch (e) {
+      this.logger.error(`api getGameResults error | ${e}`);
+      const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
+      throw new HttpException(
+        {
+          status: status,
+          error: e?.response?.error
+            ? e.response.error
+            : 'There was a problem processing your request',
+        },
+        status,
+      );
+    }
+  }
+
   @Post('createGame')
   public async createGame(
     @Body() payload: ICreateLobbyReq,
@@ -106,6 +129,27 @@ export class ApiController {
       return await this.apiService.createGame(jwtData.telegramUserId.toString(), payload);
     } catch (e) {
       this.logger.error(`api createGames error | ${e}`);
+      const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
+      throw new HttpException(
+        {
+          status: status,
+          error: e?.response?.error
+            ? e.response.error
+            : 'There was a problem processing your request',
+        },
+        status,
+      );
+    }
+  }
+
+  @Post('deleteGame')
+  public async deleteGame(@Body() payload: { roomId: string }): Promise<void> {
+    try {
+      this.logger.log('deleteGame call');
+
+      return await this.apiService.deleteGame(payload.roomId);
+    } catch (e) {
+      this.logger.error(`api deleteGame error | ${e}`);
       const status = e?.response?.status ? e.response.status : HttpStatus.INTERNAL_SERVER_ERROR;
       throw new HttpException(
         {
